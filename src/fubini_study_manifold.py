@@ -8,8 +8,8 @@ de la distance de Fubini-Study (angle de Bures) entre états
 fondamentaux du fluxonium, et projection sur un réseau de
 21 qubits Fluxonium.
 
-Distinction terminologique
---------------------------
+Distinction terminologique (rigoureuse)
+---------------------------------------
 - Distance de Fubini-Study (angle de Bures) :
       D_FS(a, b) = arccos(|<psi(a)|psi(b)>|)
   C'est la distance géodésique sur l'espace projectif CP^{N-1}
@@ -20,8 +20,18 @@ Distinction terminologique
   Ce n'est PAS ce que calcule ce module.
 
 La métrique g_{Phi,Phi} est la partie réelle du tenseur
-géométrique quantique (QGT), qui mesure la sensibilité de
+géométrique quantique (QGT) : elle mesure la sensibilité de
 l'état fondamental aux variations du paramètre phi_ext.
+
+Note d'architecture
+-------------------
+Ce module est AUTONOME : il ne dépend ni de fluxonium_hamiltonian.py
+ni de fluxonium_model.py. Il possède son propre solveur (grille de
+phase + eigh), ce qui en fait un module de caractérisation
+géométrique séparé, conformément à l'architecture découplée.
+
+Auteur : [Votre nom]
+Licence : MIT
 """
 
 from dataclasses import dataclass
@@ -46,8 +56,8 @@ class FluxoniumQuantumGeometry:
     """
     Évalue la géométrie différentielle de l'espace projectif du Fluxonium.
 
-    Métrique de Fubini-Study :
-        g_{Phi,Phi}(phi_ext) = (1 - |<psi(phi_ext - eps)|psi(phi_ext + eps)>|^2) / (2 eps)^2
+    Métrique de Fubini-Study (différence symétrique) :
+        g_{Phi,Phi}(phi) = (1 - |<psi(phi-eps)|psi(phi+eps)>|²) / (2 eps)²
 
     Distance de Fubini-Study (angle de Bures) :
         D_FS(a, b) = arccos(|<psi(a)|psi(b)>|)
@@ -55,7 +65,9 @@ class FluxoniumQuantumGeometry:
 
     def __init__(self, cfg: FubiniStudyConfig):
         self.cfg = cfg
-        self.phi = np.linspace(-cfg.phi_bound, cfg.phi_bound, cfg.n_grid)
+        self.phi = np.linspace(
+            -cfg.phi_bound, cfg.phi_bound, cfg.n_grid
+        )
         self.h = self.phi[1] - self.phi[0]
         self.T_kin = self._build_kinetic()
 
@@ -140,7 +152,7 @@ class FluxoniumQuantumGeometry:
     def project_onto_21q_lattice(
         self,
         gradient_flux: float = 0.04,
-        sigma_flux_uPhi0: float = 1.5
+        sigma_flux_uPhi0: float = 1.5,
     ) -> Dict[str, np.ndarray]:
         """
         Projette la métrique g_{Phi,Phi} sur les 21 nœuds
@@ -194,31 +206,4 @@ def verify_sweet_spot_minimum():
     g_off = geom.metric_component(np.pi * 0.95)
     assert g_sweet < g_off, (
         f"g au sweet spot ({g_sweet:.6g}) devrait être inférieur "
-        f"à g hors sweet spot ({g_off:.6g})."
-    )
-    print(f"[OK] g_PhiPhi minimale au sweet spot : {g_sweet:.6g} rad^-2")
-
-
-if __name__ == "__main__":
-    geom = FluxoniumQuantumGeometry(FubiniStudyConfig())
-    proj = geom.project_onto_21q_lattice(gradient_flux=0.04)
-
-    print("--- Projection Métrique Fubini-Study sur Réseau 21 Qubits ---")
-    print(
-        f"  g_PhiPhi au centre (noeud 10, Phi=pi) : "
-        f"{proj['g_PhiPhi_nodes'][10]:.4f} rad^-2"
-    )
-    print(
-        f"  g_PhiPhi max sur le réseau            : "
-        f"{np.max(proj['g_PhiPhi_nodes']):.4f} rad^-2"
-    )
-    print(
-        f"  Distance Fubini-Study max à pi (D_FS) : "
-        f"{np.max(proj['fubini_study_distance_from_pi']):.5f} rad"
-    )
-    print(
-        f"  Taux déphasage géométrique max        : "
-        f"{np.max(proj['geometric_dephasing_Hz']):.4f} Hz"
-    )
-
-    verify_sweet_spot_minimum()
+        f"à g hors sweet spot ({g_of
