@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""ÉDIFICE QUANTIQUE V60 - fichier unique (ouvrable dans nano).
+"""ÉDIFICE QUANTIQUE 1.0.0 - fichier unique (ouvrable dans nano), généré depuis src/edifice.
 Termux : pkg install python python-numpy nano
 Usage  : python edifice.py valider
          python edifice.py campagne --rapide --output ~/noyau
@@ -9,14 +9,14 @@ Sections : 1 core | 2 modele | 3 validation | 4 campagne | 5 cli
 (dans nano : Ctrl+W cherche un mot, Ctrl+_ va à une ligne, Ctrl+O enregistre, Ctrl+X quitte)
 """
 from __future__ import annotations
-import argparse, csv, hashlib, json, os, platform, sys, time
+import argparse, csv, hashlib, json, logging, os, platform, sys, tempfile, time
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Optional
 import numpy as np
 
-# Les anciens modules deviennent des sections de ce fichier : mêmes noms préfixés C., K.
-C = K = validation = sys.modules[__name__]
+VERSION = __version__ = "1.0.0"
+C = K = validation = sys.modules[__name__]   # les anciens modules deviennent des sections
 
 
 # ============================================================================
@@ -249,10 +249,20 @@ class Config:
     @staticmethod
     def from_dict(d: dict) -> "Config":
         d = dict(d)
+        inconnus = set(d) - set(Config.__dataclass_fields__)
+        if inconnus:
+            raise ValueError(f"Paramètres inconnus : {sorted(inconnus)}")
         for k in ("alphas", "gains", "modes"):
             if k in d:
                 d[k] = tuple(d[k])
         return Config(**d)
+
+    def to_json(self, chemin) -> None:
+        Path(chemin).write_text(json.dumps(self.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    @staticmethod
+    def from_json(chemin) -> "Config":
+        return Config.from_dict(json.loads(Path(chemin).read_text(encoding="utf-8")))
 
 
 def construire_profil(mode: str, n_stress: int, n_recup: int) -> np.ndarray:
@@ -644,6 +654,55 @@ def t_config_invalide():
     return float(acceptes), 0.0
 
 
+def t_hamiltonien_effectif():
+    """Sans rétroaction ni bruit, l'état reste dans le sous-espace à une excitation :
+    solution exacte par l'hamiltonien effectif non hermitien H0 - i(gamma/2) n_A."""
+    alpha, amp = 0.2, 7.0
+    cfg = Config(n_stress=40, n_recup=10, alphas=(alpha,))
+    M = Modele(cfg, alpha)
+    profil = construire_profil("chronique", cfg.n_stress, cfg.n_recup)
+    r = simuler(cfg, M, 0.0, profil, amp, np.zeros((len(profil), 2)))
+    sp0, sm0 = C.embed(C.SP, 0, 2), C.embed(C.SM, 0, 2)
+    sp1, sm1 = C.embed(C.SP, 1, 2), C.embed(C.SM, 1, 2)
+    H0 = cfg.couplage_J * (sp0 @ sm1 + sm0 @ sp1) \
+        + 0.5 * alpha * cfg.echelle_desaccord * (C.embed(C.SZ, 0, 2) - C.embed(C.SZ, 1, 2))
+    nA = C.embed(C.NN, 0, 2)
+    psi = np.zeros(4, dtype=complex)
+    psi[2] = 1.0
+    for p in profil:
+        g = float(np.tanh(p * amp * cfg.decay))
+        psi = C.expm(-1j * (H0 - 0.5j * g * nA)) @ psi
+    e1 = abs(r["dose_reelle"] - (1.0 - float(np.vdot(psi, psi).real)))
+    e2 = abs(r["F_final"] - abs(psi[2]) ** 2)
+    return max(e1, e2), 1e-11
+
+
+def t_config_json():
+    cfg = Config(n_qubits=3, alphas=(0.1, -0.1), modes=("aigu",))
+    with tempfile.TemporaryDirectory() as d:
+        f = Path(d) / "cfg.json"
+        cfg.to_json(f)
+        identique = Config.from_json(f) == cfg
+    try:
+        Config.from_dict({"parametre_inconnu": 1})
+        rejet = False
+    except ValueError:
+        rejet = True
+    return float(not (identique and rejet)), 0.0
+
+
+def t_reprise_campagne():
+    cfg = Config(n_graines=1, n_stress=20, n_recup=5, gains=(0.0,), alphas=(0.0,),
+                 modes=("aigu",), calibration_grille_points=10)
+    with tempfile.TemporaryDirectory() as d:
+        sortie = Path(d)
+        a = K.executer(cfg, sortie, False, lambda *_: None)
+        b = K.executer(cfg, sortie, True, lambda *_: None)
+        n_lignes = len((sortie / "points.jsonl").read_text(encoding="utf-8").strip().splitlines())
+    ok = len(a) == len(b) == 1 and a[0]["amplitude"] == b[0]["amplitude"] and n_lignes == 2
+    return float(not ok), 0.0
+
+
 TESTS = [
     ("expm : unitaire vs diagonalisation", t_expm_unitaire),
     ("Rabi : P_e = sin^2(Omega t / 2)", t_rabi),
@@ -658,6 +717,9 @@ TESTS = [
     ("Reproductibilité : même graine, même résultat", t_reproductibilite),
     ("Simulation : conservation (2 et 3 qubits, gain 0)", t_conservation_simulation),
     ("Calibration : dose cible atteinte", t_calibration),
+    ("Exact : hamiltonien effectif non hermitien (1 excitation)", t_hamiltonien_effectif),
+    ("Config : aller-retour JSON, clés inconnues rejetées", t_config_json),
+    ("Campagne : reprise après interruption", t_reprise_campagne),
     ("Config : entrées invalides rejetées", t_config_invalide),
 ]
 
@@ -691,7 +753,8 @@ def lancer() -> bool:
 
 
 
-VERSION = "V60"
+
+log = logging.getLogger(__name__)
 METRIQUES = ("amplitude", "dose_reelle", "F_min", "F_final", "C_max", "C_final", "EN_max", "EN_final",
              "purete_finale", "entropie_finale", "distance_stress", "distance_finale",
              "amelioration_recuperation", "max_violation", "max_residu_N")
@@ -742,7 +805,8 @@ def _lire_points(chemin: Path, cfg: Config) -> dict:
     return faits
 
 
-def executer(cfg: Config, sortie: Path | None, reprendre: bool, parler=print) -> list[dict]:
+def executer(cfg: Config, sortie: Path | None, reprendre: bool, parler=None) -> list[dict]:
+    parler = parler or log.info
     points = (sortie / "points.jsonl") if sortie else None
     faits: dict = {}
     if sortie:
@@ -857,9 +921,11 @@ def exporter(cfg: Config, resultats: list[dict], agg: list[dict], sortie: Path) 
 # SECTION 5 : cli
 # ============================================================================
 # -*- coding: utf-8 -*-
-"""Interface en ligne de commande : valider | campagne | trajectoire."""
+"""Interface en ligne de commande : valider | config | campagne | trajectoire."""
 
 
+
+log = logging.getLogger("edifice")
 
 
 def _liste(s: str) -> tuple[float, ...]:
@@ -867,6 +933,9 @@ def _liste(s: str) -> tuple[float, ...]:
 
 
 def _cfg_depuis(a) -> Config:
+    """--config fait autorité : les autres options de modèle sont alors ignorées."""
+    if getattr(a, "config", None):
+        return Config.from_json(Path(a.config).expanduser())
     kw: dict = {"n_qubits": a.qubits, "dose_reelle_cible": a.cible, "seed": a.seed,
                 "bruit_interne": a.bruit, "dephasage": a.dephasage}
     if a.graines is not None:
@@ -883,6 +952,8 @@ def _cfg_depuis(a) -> Config:
 
 
 def _commun(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--config", type=str, default=None,
+                   help="fichier JSON de configuration (prioritaire sur les options ci-dessous)")
     p.add_argument("--qubits", type=int, default=2, help="2 à 4 (4 qubits : lent sur téléphone)")
     p.add_argument("--cible", type=float, default=0.50)
     p.add_argument("--seed", type=int, default=42)
@@ -893,6 +964,15 @@ def _commun(p: argparse.ArgumentParser) -> None:
 
 def cmd_valider(a) -> int:
     return 0 if validation.lancer() else 1
+
+
+def cmd_config(a) -> int:
+    cfg = _cfg_depuis(a)
+    out = Path(a.output).expanduser()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    cfg.to_json(out)
+    print(f"Configuration écrite : {out}")
+    return 0
 
 
 def cmd_campagne(a) -> int:
@@ -913,8 +993,7 @@ def cmd_campagne(a) -> int:
 
 def cmd_trajectoire(a) -> int:
     cfg = _cfg_depuis(a)
-    alpha = float(a.alpha)
-    M = Modele(cfg, alpha)
+    M = Modele(cfg, float(a.alpha))
     profil = construire_profil(a.mode, cfg.n_stress, cfg.n_recup)
     bruit = np.random.default_rng(cfg.seed).normal(0.0, cfg.bruit_interne, size=(len(profil), cfg.n_qubits))
     amp = a.amplitude
@@ -938,11 +1017,18 @@ def cmd_trajectoire(a) -> int:
     return 0
 
 
-def main(argv=None) -> int:
+def construire_parseur() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="edifice", description="Édifice quantique : qubits ouverts, Lindblad.")
+    ap.add_argument("--version", action="version", version=f"edifice {__version__}")
+    ap.add_argument("-v", "--verbeux", action="store_true", help="journal détaillé")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("valider", help="batterie de validation analytique et croisée").set_defaults(f=cmd_valider)
+
+    pf = sub.add_parser("config", help="écrit un fichier de configuration JSON modifiable")
+    _commun(pf)
+    pf.add_argument("--output", type=str, required=True)
+    pf.set_defaults(f=cmd_config)
 
     pc = sub.add_parser("campagne", help="plan expérimental calibré, avec reprise")
     _commun(pc)
@@ -962,11 +1048,16 @@ def main(argv=None) -> int:
     pt.add_argument("--amplitude", type=float, default=None, help="sinon calibrée sur la dose cible")
     pt.add_argument("--output", type=str, required=True)
     pt.set_defaults(f=cmd_trajectoire)
+    return ap
 
-    a = ap.parse_args(argv)
+
+def main(argv=None) -> int:
+    a = construire_parseur().parse_args(argv)
+    logging.basicConfig(level=logging.DEBUG if a.verbeux else logging.INFO,
+                        format="%(message)s", stream=sys.stdout, force=True)
     try:
         return a.f(a)
-    except (ValueError, RuntimeError, AssertionError) as exc:
+    except (ValueError, RuntimeError, AssertionError, OSError, json.JSONDecodeError) as exc:
         print(f"Erreur : {exc}", file=sys.stderr)
         return 2
 
