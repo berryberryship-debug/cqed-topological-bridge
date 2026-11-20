@@ -66,3 +66,35 @@ clairement étiqueté comme tel.
    ainsi que les codes de répétition de phase à distance impaire d.
 
 ## 2. Structure du dépôt (réelle)
+
+```text
+cqed-topological-bridge/
+├── __init__.py                    # Initialisation du paquet Python
+├── pyproject.toml                # Configuration du build et métadonnées du projet
+├── requirements.txt               # Dépendances d'exécution (NumPy, SciPy, etc.)
+├── LICENSE                        # Licence logicielle
+├── README.md                      # Documentation principale du pipeline
+│
+├── run_pipeline.py                # Point d'entrée principal pour l'exécution du pipeline standard
+├── pont_lourd_unifie.py           # Orchestrateur complet du pont cQED → chirurgie 21 qubits
+├── edifice.py                    # Architecture globale et couplage des couches dynamiques
+│
+├── fluxonium_core.py              # Structures de données, constantes et grilles de phase
+├── fluxonium_hamiltonian.py       # Construction matricielle et diagonalisation de H (Dirichlet)
+├── fluxonium_model.py             # Calcul des observables (T1, T_phi, ∂f01/∂Φ, dipôles)
+├── fluxon_engine.py               # Modulation spatiale du substrat et bilan conservatif x_qp
+├── fubini_study_manifold.py       # Calcul du QGT et de la métrique de Fubini-Study (g_FS)
+├── pulse_calibration.py           # Calibrage d'enveloppes d'impulsions et leakage (sans DRAG)
+│
+├── noise_channel.py               # Matrice de transfert de Pauli (PTM) et Pauli twirling exact
+├── kerr_cat_simulator.py          # Solveur Lindblad RK4 pour qubit bosonique Kerr-Cat
+│
+├── error_correction.py            # Codes de répétition, budget d'erreur et simulation chirurgie d=3
+├── geometric_mwpm_decoder.py      # Décodeur MWPM pondéré par la géométrie et le biais local
+│
+└── test/                          # Suite de tests unitaires et d'intégration
+    ├── test_fluxonium.py          # Validation du spectre, des états propres et convergence
+    ├── test_fubini_study.py      # Vérification du QGT et de la convergence de g_FS
+    ├── test_kerr_cat.py           # Validation RK4 Lindblad, fidélité et leakage Kerr-Cat
+    ├── test_error_correction.py   # Tests des codes de répétition et budget d'erreur biaisé
+    └── test_chirurgie_21q_pont.py # Test d'intégration bout-en-bout du pont sur 21 qubits
