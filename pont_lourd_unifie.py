@@ -215,19 +215,33 @@ class SolveurFluxoniumMicroscopique:
         evals, evecs = np.linalg.eigh(0.5 * (H + H.conj().T))
         return evals[:3] - evals[0], evecs[:, :3]
 
-    def phase_berry_boucle(self, EJ: float, phi_centre: float, rayon: float = 0.25 * math.pi) -> float:
-        """Holonomie discrète de Pancharatnam-Berry sur une excursion fermée en flux."""
-        chemin = np.linspace(phi_centre - rayon, phi_centre + rayon, 21)
-        etats = [self._diag(EJ, float(p))[1][:, 0] for p in chemin]
+    def phase_berry_boucle(
+        self,
+        EJ: float,
+        phi_centre: float,
+        rayon_phi: float = 0.25 * math.pi,
+        rayon_EJ_rel: float = 0.05,
+        n_points: int = 24,
+    ) -> float:
+        """
+        Holonomie discrète de Pancharatnam-Berry sur une boucle fermée 2D
+        dans l'espace des paramètres (phi_ext, EJ) autour de (phi_centre, EJ).
+        """
+        angles = np.linspace(0.0, 2.0 * math.pi, n_points, endpoint=False)
+        etats = []
+        for theta in angles:
+            phi_t = phi_centre + rayon_phi * math.cos(theta)
+            EJ_t = EJ * (1.0 + rayon_EJ_rel * math.sin(theta))
+            etats.append(self._diag(EJ_t, phi_t)[1][:, 0])
+
         phase = 0.0
-        for u, v in zip(etats[:-1], etats[1:]):
+        for idx in range(n_points):
+            u = etats[idx]
+            v = etats[(idx + 1) % n_points]
             ov = np.vdot(u, v)
             if abs(ov) < 1e-14:
                 return 0.0
             phase += np.angle(ov)
-        ov_close = np.vdot(etats[-1], etats[0])
-        if abs(ov_close) >= 1e-14:
-            phase += np.angle(ov_close)
         return float(np.angle(np.exp(1j * phase)))
 
     def caracteriser_noeud(
@@ -244,11 +258,16 @@ class SolveurFluxoniumMicroscopique:
         f01 = float(E0[1])
         f12 = float(E0[2] - E0[1])
         alpha_rel = (f12 - f01) / f01 if abs(f01) > 1e-12 else 0.0
-        d_omega = float((Ep[1] - Em[1]) / (2.0 * d_phi))
+
+        # Sensibilité en fréquence df01/dphi (GHz/rad) et en pulsation domega01/dphi
+        df01_dphi_rad = float((Ep[1] - Em[1]) / (2.0 * d_phi))
+        d_omega = 2.0 * math.pi * df01_dphi_rad
 
         n01 = abs(np.vdot(V0[:, 0], self.n_op @ V0[:, 1]))
         phi01 = abs(np.vdot(V0[:, 0], self.phi_op @ V0[:, 1]))
-        sin_op = (self.phi_vecs * np.sin(0.5 * self.phi_vals)) @ self.phi_vecs.conj().T
+
+        # Opérateur quasiparticule exact : sin((phi - phi_ext) / 2)
+        sin_op = (self.phi_vecs * np.sin(0.5 * (self.phi_vals - phi_ext))) @ self.phi_vecs.conj().T
         sin01 = abs(np.vdot(V0[:, 0], sin_op @ V0[:, 1]))
 
         x = f01 / (self.p.kB_h * self.p.T)
@@ -259,6 +278,7 @@ class SolveurFluxoniumMicroscopique:
         g_qp = ((8.0 * EJ_local / math.pi) * (sin01 ** 2) + (8.0 * self.p.EL / math.pi) * ((0.5 * phi01) ** 2)) * f_qp
         T1_us = (1.0 / (g_diel + g_qp)) * 1e-3
 
+        # Déphasage pur 1/f en flux : d_omega (rad/ns) * A_phi (Phi0) * 2*pi (rad/Phi0)
         g_phi = abs(d_omega) * math.sqrt(2.0 * math.log(2.0)) * (2.0 * math.pi * self.p.A_phi)
         Tphi_us = (1.0 / g_phi) * 1e-3 if g_phi > 1e-12 else 1e6
         T2_star_us = 1.0 / (0.5 / T1_us + 1.0 / Tphi_us)
@@ -268,9 +288,13 @@ class SolveurFluxoniumMicroscopique:
         F_loc = _clamp01(overlap_sym ** 2)
         g_FS = max(0.0, (1.0 - F_loc) / ((2.0 * d_phi) ** 2))
 
+        # Conversion df01/dPhi en Hz / Phi0 pour compatibilité avec noise_channel
+        df01_dPhi_Hz = df01_dphi_rad * (2.0 * math.pi) * 1e9
+
         return {
             "f01_GHz": f01,
             "alpha_rel": alpha_rel,
+            "df01_dPhi_Hz": df01_dPhi_Hz,
             "T1_us": T1_us,
             "Tphi_us": Tphi_us,
             "T2_star_us": T2_star_us,
@@ -310,7 +334,7 @@ def canal_pauli_par_noeud(
     """
     Construit le canal de Pauli twirled exact pour un nœud.
 
-    Retourne un dictionnaire avec p_I, p_X, p_Y, p_Z.
+    Retourne un dictionnaire avec I, X, Y, Z.
     """
     config = ChannelConfig(
         T1=T1_us * 1e-6,
@@ -434,7 +458,8 @@ def executer_pipeline_complet(
     delta_flux = gradient_flux_substrat(xs, ys, champ_moire, t=1.0)
 
     bilan_dyn = evoluer_noyau_conservatif(ConfigNoyau(), mode="aigu")
-    solveur = SolveurFluxoniumMicroscopique(FluxoniumParams(N_basis=basis))
+    params_phys = FluxoniumParams(N_basis=basis)
+    solveur = SolveurFluxoniumMicroscopique(params_phys)
 
     print("=" * 94)
     print("  PONT LOURD UNIFIÉ : MOIRÉ (21Q) -> V50.1 -> FLUXONIUM -> PAULI TWIRL -> LATTICE SURGERY (d=3)")
@@ -461,6 +486,7 @@ def executer_pipeline_complet(
         obs_noeuds = []
         pX = np.zeros(21)
         pZ = np.zeros(21)
+        eps_noeuds = np.zeros(21)
 
         for i in range(21):
             EJ_i = EJ_nom * (1.0 + 0.015 * math.cos(i * 0.7))
@@ -468,12 +494,17 @@ def executer_pipeline_complet(
             obs = solveur.caracteriser_noeud(EJ_i, phi_i, bilan_dyn.charge_quasiparticules)
             obs_noeuds.append(obs)
 
-            # Canal de Pauli twirled EXACT (remplace l'approximation px/pz)
-            canal = canal_pauli_par_noeud(
-                T1_us=obs["T1_us"],
-                Tphi_us=obs["Tphi_us"],
-                tau_us=tau_us,
+            # Canal de Pauli twirled EXACT (Tphi_us intègre déjà le déphasage 1/f local)
+            cfg_noeud = ChannelConfig(
+                T1=obs["T1_us"] * 1e-6,
+                T_phi=obs["Tphi_us"] * 1e-6,
+                tau=tau_us * 1e-6,
+                df01_dphi=0.0,
+                S_phi=0.0,
             )
+            canal = build_pauli_channel(cfg_noeud)
+            eps_noeuds[i] = float(effective_error_rate(cfg_noeud))
+
             # Marginalisation Pauli : X-error = pX + pY, Z-error = pZ + pY
             pX[i] = float(np.clip(canal["X"] + canal["Y"], 0.0, 1.0))
             pZ[i] = float(np.clip(canal["Z"] + canal["Y"], 0.0, 1.0))
@@ -490,6 +521,7 @@ def executer_pipeline_complet(
             "T1_moy_us": round(obs_moy["T1_us"], 2),
             "Tphi_moy_us": round(obs_moy["Tphi_us"], 2),
             "g_FS_moy": round(obs_moy["g_FS"], 3),
+            "eps_phys_moy": round(float(np.mean(eps_noeuds)), 6),
             "berry_phase_rad": round(berry, 4),
             "readiness_score": round(readiness, 4),
             "probabilite_succes_logique": round(succes_logique, 5),
