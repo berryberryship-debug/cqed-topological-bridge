@@ -1,135 +1,205 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-Module : error_correction.py
-Simulation Monte Carlo et analytique de correction d'erreurs quantiques (QEC)
-adaptée aux architectures à bruit biaisé (Fluxonium protégé / Kerr-Cat) :
-  - Canal de bruit asymétrique (Pauli biaisé : p_Z >> p_X, p_Y)
-  - Décodeur de code de répétition de phase à distance d (syndrome X_i X_{i+1})
-  - Simulation Monte Carlo de seuil et d'échelle de suppression d'erreurs logiques
+error_correction.py
+
+Estimation du taux d'erreur logique pour codes correcteurs
+à partir des paramètres physiques mesurés (T1, T2, fidélité de porte).
+
+Modèles disponibles :
+- Code de surface : p_L ≈ A * (p / p_th)^((d+1)/2)
+- Code de répétition biaisé : somme binomiale exacte
+
+Architecture découplée
+----------------------
+Ce module ne prend que des NOMBRES (T1, T2, fidélité de porte,
+durée de porte). Il ne dépend d'aucun autre module du projet
+(fluxonium_hamiltonian, noise_channel, etc.). Le pipeline
+d'assemblage (run_pipeline.py) fait le collage.
+
+Auteur : [Votre nom]
+Licence : MIT
 """
 
-import math
+from __future__ import annotations
+
+import json
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict
+
 import numpy as np
 
 
+# ----------------------------------------------------------------------
+# Paramètres physiques
+# ----------------------------------------------------------------------
+
 @dataclass
-class BiasedNoiseChannel:
-    """Modèle de canal de Pauli asymétrique avec biais eta = p_Z / (p_X + p_Y)."""
-    p_total: float = 0.02              # Probabilité totale d'erreur par cycle
-    bias_eta: float = 100.0            # Biais de phase eta = p_Z / (p_X + p_Y)
+class PhysicalErrorRates:
+    """Taux d'erreur physiques extraits de la simulation."""
+
+    t1: float  # secondes
+    t2: float  # secondes
+    gate_fidelity: float  # entre 0 et 1
+    gate_time: float  # secondes
+
+    def __post_init__(self):
+        if self.t1 <= 0 or self.t2 <= 0:
+            raise ValueError("T1 et T2 doivent être positifs.")
+        if not 0 < self.gate_fidelity <= 1:
+            raise ValueError("gate_fidelity doit être dans (0, 1].")
+        if self.gate_time <= 0:
+            raise ValueError("gate_time doit être positif.")
 
     @property
-    def probabilities(self) -> Tuple[float, float, float, float]:
-        """Retourne (p_I, p_X, p_Y, p_Z)."""
-        p_xy = self.p_total / (1.0 + self.bias_eta)
-        p_Z = self.p_total - p_xy
-        p_X = 0.5 * p_xy
-        p_Y = 0.5 * p_xy
-        p_I = max(0.0, 1.0 - self.p_total)
-        return p_I, p_X, p_Y, p_Z
+    def relaxation_error(self) -> float:
+        """Probabilité d'erreur de relaxation pendant une porte."""
+        return 1.0 - np.exp(-self.gate_time / self.t1)
+
+    @property
+    def dephasing_error(self) -> float:
+        """Probabilité d'erreur de déphasage pendant une porte."""
+        return 1.0 - np.exp(-self.gate_time / self.t2)
+
+    @property
+    def gate_error(self) -> float:
+        """Erreur totale par porte = 1 - fidélité."""
+        return 1.0 - self.gate_fidelity
+
+    @property
+    def total_physical_error(self) -> float:
+        """
+        Somme des contributions (approximation indépendante).
+
+        Note : cette somme suppose l'indépendance des trois canaux,
+        ce qui est une construction du modèle, pas une propriété
+        fondamentale.
+        """
+        return self.relaxation_error + self.dephasing_error + self.gate_error
 
 
-class PhaseFlipRepetitionCode:
+# ----------------------------------------------------------------------
+# Codes correcteurs
+# ----------------------------------------------------------------------
+
+def logical_error_rate_surface_code(
+    physical_error: float,
+    code_distance: int,
+    threshold: float = 0.01,
+    prefactor: float = 0.1,
+) -> float:
     """
-    Code de répétition de phase à distance impaire d :
-      - Encode |0_L> = |+>^{otimes d}, |1_L> = |->^{otimes d}
-      - Stabilisateurs : S_i = X_i X_{i+1} pour i = 0, ..., d-2
-      - Corrige jusqu'à t = (d - 1) // 2 erreurs Z simultanées
-      - Toute erreur X ou Y non détectée provoque un basculement logique résiduel
+    Estime le taux d'erreur logique pour un code de surface.
+
+    p_L ≈ A * (p / p_th)^((d+1)/2)
+
+    Valide seulement si p < p_th.
     """
+    if code_distance < 1:
+        raise ValueError("code_distance doit être au moins 1.")
+    if physical_error >= threshold:
+        return 1.0  # au-dessus du seuil, pas de correction
+    exponent = (code_distance + 1) / 2.0
+    return prefactor * (physical_error / threshold) ** exponent
 
-    def __init__(self, distance: int):
-        if distance < 3 or distance % 2 == 0:
-            raise ValueError("La distance d du code de répétition doit être impaire et >= 3.")
-        self.d = distance
-        self.t_correctable = (distance - 1) // 2
 
-    def measure_syndrome(self, z_errors: np.ndarray) -> np.ndarray:
-        """Calcule le vecteur syndrome s_i = z_i XOR z_{i+1} de longueur d - 1."""
-        return np.bitwise_xor(z_errors[:-1], z_errors[1:])
+def logical_error_rate_repetition_code(
+    physical_error: float,
+    n_repetitions: int,
+) -> float:
+    """
+    Taux d'erreur logique pour un code de répétition simple.
 
-    def decode_minimum_weight(self, syndrome: np.ndarray) -> np.ndarray:
-        """
-        Décodeur exact de poids minimal en 1D :
-        Compare les deux configurations d'erreurs Z compatibles avec le syndrome
-        et sélectionne celle impliquant le plus petit nombre de qubits physiques.
-        """
-        candidate_0 = np.zeros(self.d, dtype=np.int8)
-        for i in range(self.d - 1):
-            candidate_0[i + 1] = candidate_0[i] ^ syndrome[i]
+    p_L = somme des k impairs C(n,k) p^k (1-p)^(n-k)
+    Approximation dominante : premier terme impair.
+    """
+    if n_repetitions < 1:
+        raise ValueError("n_repetitions doit être au moins 1.")
+    p_L = (
+        n_repetitions
+        * physical_error
+        * (1.0 - physical_error) ** (n_repetitions - 1)
+    )
+    return float(p_L)
 
-        candidate_1 = 1 - candidate_0
-        if np.sum(candidate_0) <= np.sum(candidate_1):
-            return candidate_0
-        return candidate_1
 
-    def run_monte_carlo(
-        self,
-        channel: BiasedNoiseChannel,
-        n_shots: int = 50_000,
-        seed: int = 42
-    ) -> Dict[str, float]:
-        """
-        Exécute n_shots cycles d'injection de bruit et de correction :
-          - Échec logique Z si la parité globale de (z_err XOR z_corr) vaut 1
-          - Échec logique X si un nombre impair d'erreurs X/Y survient
-        """
-        rng = np.random.default_rng(seed)
-        p_I, p_X, p_Y, p_Z = channel.probabilities
+def error_budget(
+    rates: PhysicalErrorRates,
+    code_distance: int = 3,
+    code_type: str = "surface",
+) -> Dict[str, float]:
+    """
+    Produit un budget d'erreur complet.
 
-        # Tirage vectorisé des erreurs Pauli : 0=I, 1=X, 2=Y, 3=Z
-        draws = rng.choice(
-            4,
-            size=(n_shots, self.d),
-            p=[p_I, p_X, p_Y, p_Z]
+    Retourne un dictionnaire avec toutes les contributions.
+    """
+    p_phys = rates.total_physical_error
+
+    if code_type == "surface":
+        p_logical = logical_error_rate_surface_code(
+            p_phys, code_distance
+        )
+    elif code_type == "repetition":
+        p_logical = logical_error_rate_repetition_code(
+            p_phys, code_distance
+        )
+    else:
+        raise ValueError(
+            "code_type doit être 'surface' ou 'repetition'."
         )
 
-        # Décomposition en composantes X (codes 1 et 2) et Z (codes 2 et 3)
-        x_errors = ((draws == 1) | (draws == 2)).astype(np.int8)
-        z_errors = ((draws == 2) | (draws == 3)).astype(np.int8)
+    return {
+        "relaxation_error": rates.relaxation_error,
+        "dephasing_error": rates.dephasing_error,
+        "gate_error": rates.gate_error,
+        "total_physical_error": p_phys,
+        "code_distance": code_distance,
+        "code_type": code_type,
+        "logical_error_rate": p_logical,
+        "below_threshold": p_phys < 0.01,
+    }
 
-        logical_z_failures = 0
-        logical_x_failures = 0
 
-        for shot in range(n_shots):
-            z_vec = z_errors[shot]
-            syn = self.measure_syndrome(z_vec)
-            z_corr = self.decode_minimum_weight(syn)
-            residual_z = np.bitwise_xor(z_vec, z_corr)
+# ----------------------------------------------------------------------
+# Pipeline complet (découplé)
+# ----------------------------------------------------------------------
 
-            if np.sum(residual_z) % 2 == 1:
-                logical_z_failures += 1
-            if np.sum(x_errors[shot]) % 2 == 1:
-                logical_x_failures += 1
+def run_full_pipeline(
+    T1: float,
+    T2: float,
+    gate_fidelity: float,
+    gate_time: float,
+    code_distance: int = 3,
+    code_type: str = "surface",
+) -> Dict[str, float]:
+    """
+    Pipeline complet de budget d'erreur.
 
-        p_L_Z = logical_z_failures / n_shots
-        p_L_X = logical_x_failures / n_shots
-        p_L_tot = 1.0 - (1.0 - p_L_Z) * (1.0 - p_L_X)
+    Prend des NOMBRES (T1, T2, fidélité de porte, durée de porte),
+    jamais un objet modèle. Respecte l'architecture découplée.
 
-        return {
-            "distance": self.d,
-            "n_shots": n_shots,
-            "p_phys_total": channel.p_total,
-            "bias_eta": channel.bias_eta,
-            "p_logical_Z": p_L_Z,
-            "p_logical_X": p_L_X,
-            "p_logical_total": p_L_tot
-        }
+    Retourne un dictionnaire avec toutes les contributions.
+    """
+    rates = PhysicalErrorRates(
+        t1=T1,
+        t2=T2,
+        gate_fidelity=gate_fidelity,
+        gate_time=gate_time,
+    )
+    return error_budget(
+        rates, code_distance=code_distance, code_type=code_type
+    )
 
-    def analytical_logical_error(self, channel: BiasedNoiseChannel) -> float:
-        """Formule combinatoire exacte du taux d'erreur logique Z + X."""
-        _, p_X, p_Y, p_Z = channel.probabilities
-        p_z_eff = p_Z + p_Y
-        p_x_eff = p_X + p_Y
 
-        # Probabilité d'avoir au moins t + 1 erreurs Z
-        p_L_Z = sum(
-            math.comb(self.d, k) * (p_z_eff ** k) * ((1.0 - p_z_eff) ** (self.d - k))
-            for k in range(self.t_correctable + 1, self.d + 1)
-        )
-        # Probabilité d'avoir un nombre impair d'erreurs X non corrigées
-        p_L_X = 0.5 * (1.0 - ((1.0 - 2.0 * p_x_eff) ** self.d))
-        return 1.0 - (1.0 - p_L_Z) * (1.0 - p_L_X)
+# ----------------------------------------------------------------------
+# Point d'entrée
+# ----------------------------------------------------------------------
+
+if __name__ == "__main__":
+    budget = run_full_pipeline(
+        T1=7.19e-6,
+        T2=14.38e-6,
+        gate_fidelity=0.99,
+        gate_time=20e-9,
+        code_distance=3,
+        code_type="surface",
+    )
+    print(json.dumps(budget, indent=2))
