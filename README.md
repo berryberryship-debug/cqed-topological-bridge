@@ -1,10 +1,10 @@
-Quantum-Lab — Fluxonium–Lattice Surgery Bridge
+# Quantum-Lab — Fluxonium–Lattice Surgery Bridge
 
-Pipeline multi-échelle : Fluxonium, bruit quantique, QEC biaisée, Kerr-Cat et chirurgie de réseau — code de surface tourné (d=3), 21 qubits
+## Pipeline multi-échelle : Fluxonium, bruit quantique, QEC biaisée, Kerr-Cat et chirurgie de réseau — code de surface tourné (d=3), 21 qubits
 
-Quantum-Lab est un environnement de modélisation numérique consacré à l'étude des interfaces entre les circuits supraconducteurs, la géométrie quantique des états, les canaux de bruit et la correction d'erreurs quantique.
+## Quantum-Lab est un environnement de modélisation numérique consacré à l'étude des interfaces entre les circuits supraconducteurs, la géométrie quantique des états, les canaux de bruit et la correction d'erreurs quantique.
 
-Le projet relie plusieurs niveaux de description :
+## Le projet relie plusieurs niveaux de description :
 
 Substrat et quasiparticules
           │
@@ -28,11 +28,11 @@ Bruit biaisé · budget logique · décodage
 Chirurgie de réseau
 Code de surface tourné d=3 · 21 qubits
 
-Le simulateur bosonique Kerr-Cat constitue une branche complémentaire du projet. Il possède sa propre dynamique et n'est pas encore intégré à une simulation couplée Fluxonium–Kerr-Cat.
+## Le simulateur bosonique Kerr-Cat constitue une branche complémentaire du projet. Il possède sa propre dynamique et n'est pas encore intégré à une simulation couplée Fluxonium–Kerr-Cat.
 
 ---
 
-1. Statut scientifique et périmètre épistémique
+# 1. Statut scientifique et périmètre épistémique
 
 Ce dépôt implémente un pipeline de modélisation numérique multi-échelle. Il ne constitue ni une démonstration expérimentale, ni une dérivation physique complète de bout en bout.
 
@@ -58,7 +58,7 @@ Une validation numérique locale ne constitue pas automatiquement une validation
 
 Le pipeline est conçu pour étudier la cohérence d'une architecture de modélisation, pas pour affirmer qu'une architecture matérielle fonctionnera telle quelle.
 
-1.1 Fonctionnalités présentes dans le périmètre du projet
+## 1.1 Fonctionnalités présentes dans le périmètre du projet
 
 Les modules du dépôt couvrent les domaines suivants :
 
@@ -111,7 +111,7 @@ Qubit bosonique
 
 La présence d'une fonctionnalité dans cette liste ne signifie pas qu'elle a été validée expérimentalement.
 
-1.2 Éléments non implémentés ou non établis
+## 1.2 Éléments non implémentés ou non établis
 
 Les éléments suivants ne doivent pas être présentés comme des fonctionnalités achevées :
 
@@ -126,7 +126,7 @@ Les éléments suivants ne doivent pas être présentés comme des fonctionnalit
 - Validation expérimentale intégrée.
 - Démonstration d'un seuil de correction d'erreurs.
 
-1.3 Paramètres et réductions phénoménologiques
+## 1.3 Paramètres et réductions phénoménologiques
 
 Les éléments suivants nécessitent une qualification particulière :
 
@@ -142,9 +142,9 @@ Ces paramètres doivent être documentés avec leurs unités, leur domaine de va
 
 ---
 
-2. Architecture du pipeline
+# 2. Architecture du pipeline
 
-2.1 Vue d'ensemble
+## 2.1 Vue d'ensemble
 
 L'architecture générale suit une succession de transformations entre niveaux de description :
 
@@ -188,7 +188,7 @@ Le point d'interrogation désigne une interface de recherche : la géométrie qu
 
 Le calcul de (g_{FS}) ne suffit pas à déduire une probabilité d'erreur.
 
-2.2 Modulation spatiale du substrat
+## 2.2 Modulation spatiale du substrat
 
 Le module "fluxon_engine.py" décrit une modulation spatiale paramétrique du substrat.
 
@@ -222,7 +222,7 @@ Cette modulation permet d'étudier l'effet d'une inhomogénéité paramétrique 
 
 Elle ne constitue pas un modèle de fabrication ni une description complète des variations matérielles d'un dispositif supraconducteur réel.
 
-2.3 Noyau dynamique conservatif
+## 2.3 Noyau dynamique conservatif
 
 Le module "fluxon_engine.py" maintient un bilan effectif de densité de quasiparticules hors équilibre :
 
@@ -280,9 +280,9 @@ Le modèle ne comprend notamment pas :
 
 ---
 
-3. Solveur Hamiltonien Fluxonium
+# 3. Solveur Hamiltonien Fluxonium
 
-3.1 Hamiltonien
+## 3.1 Hamiltonien
 
 Le module "fluxonium_hamiltonian.py" construit et diagonalise l'Hamiltonien du Fluxonium en base de phase.
 
@@ -313,7 +313,7 @@ E/h \quad \text{en GHz}.
 
 La convention de conversion entre énergie et fréquence doit rester cohérente dans l'ensemble du solveur.
 
-3.2 Quantités extraites
+## 3.2 Quantités extraites
 
 Le solveur permet d'obtenir notamment :
 
@@ -329,7 +329,7 @@ Le solveur permet d'obtenir notamment :
 
 Les taux de relaxation et de déphasage dépendent des hypothèses de bruit et des paramètres physiques introduits. Ils ne sont pas des constantes intrinsèques déterminées par le seul spectre.
 
-3.3 Convergence numérique
+## 3.3 Convergence numérique
 
 La convergence doit être examinée selon plusieurs dimensions :
 
@@ -365,9 +365,9 @@ Une vérification de convergence doit aussi contrôler l'hermiticité numérique
 
 ---
 
-4. Observables du Fluxonium
+# 4. Observables du Fluxonium
 
-4.1 Observables principales
+## 4.1 Observables principales
 
 Le module "fluxonium_model.py" regroupe les observables physiques utilisées par les couches supérieures du pipeline.
 
@@ -380,7 +380,7 @@ Les principales grandeurs concernent :
 - la sensibilité au flux ;
 - les quantités géométriques associées aux états propres.
 
-4.2 Sensibilité au flux
+## 4.2 Sensibilité au flux
 
 La dérivée de fréquence relie une fluctuation de flux à une fluctuation de fréquence.
 
@@ -451,9 +451,9 @@ Le paramètre "fs_coupling_gamma" demeure phénoménologique tant qu'une relatio
 
 ---
 
-5. Quasiparticules froides
+# 5. Quasiparticules froides
 
-5.1 Modèle de la petite jonction
+## 5.1 Modèle de la petite jonction
 
 Le modèle de relaxation par quasiparticules concerne la petite jonction Josephson du Fluxonium, dans l'approximation des quasiparticules froides.
 
@@ -479,7 +479,7 @@ Cette expression doit être interprétée avec les conventions de normalisation 
 
 La vérification dimensionnelle et la comparaison à la formulation de référence sont nécessaires avant toute interprétation quantitative.
 
-5.2 Hypothèses
+## 5.2 Hypothèses
 
 Le modèle repose sur les hypothèses suivantes :
 
@@ -492,7 +492,7 @@ Le modèle repose sur les hypothèses suivantes :
 - absence d'asymétrie de gap supraconducteur ;
 - absence de modélisation microscopique du piégeage et de la recombinaison.
 
-5.3 Portée
+## 5.3 Portée
 
 Le taux calculé est une contribution de relaxation associée à la petite jonction dans les hypothèses du modèle.
 
@@ -500,9 +500,9 @@ Il ne représente pas le taux total de relaxation par quasiparticules d'un Fluxo
 
 ---
 
-6. Canal de bruit et Pauli twirling
+# 6. Canal de bruit et Pauli twirling
 
-6.1 Construction du canal
+## 6.1 Construction du canal
 
 Le module "noise_channel.py" construit un canal de bruit effectif sur une durée (\tau).
 
@@ -516,7 +516,7 @@ Les mécanismes considérés comprennent :
 
 Les taux physiques sont convertis en paramètres de canal selon les conventions et les approximations explicitement utilisées.
 
-6.2 Amplitude damping
+## 6.2 Amplitude damping
 
 Pour un canal d'amplitude damping de paramètre :
 
@@ -596,7 +596,7 @@ Le canal de Pauli effectif est ensuite représenté par :
 
 Précision épistémique : le twirling est une opération de réduction du canal. Il supprime certaines composantes cohérentes et non diagonales. L'exactitude algébrique de la composition PTM ne signifie donc pas que le canal twirlé conserve toute l'information du canal quantique initial.
 
-6.5 Bruit quasi statique et bruit coloré
+## 6.5 Bruit quasi statique et bruit coloré
 
 Le canal de Pauli effectif ne reproduit pas intégralement :
 
@@ -613,9 +613,9 @@ Une réduction en canal effectif doit préciser la durée considérée, la distr
 
 ---
 
-7. Qubit bosonique Kerr-Cat
+# 7. Qubit bosonique Kerr-Cat
 
-7.1 Modèle dynamique
+## 7.1 Modèle dynamique
 
 Le module "kerr_cat_simulator.py" étudie une dynamique bosonique de type Kerr-Cat.
 
@@ -654,7 +654,7 @@ L^\dagger L,\rho
 
 La signification physique des opérateurs (L_j), leurs unités et leurs taux doivent être définis par les paramètres du modèle.
 
-7.2 Indépendance du modèle
+## 7.2 Indépendance du modèle
 
 Le simulateur Kerr-Cat est une branche bosonique indépendante du modèle Fluxonium.
 
@@ -666,9 +666,9 @@ Toute fonctionnalité de calibration qui lève "NotImplementedError" doit être 
 
 ---
 
-8. Correction d'erreurs quantique et chirurgie de réseau
+# 8. Correction d'erreurs quantique et chirurgie de réseau
 
-8.1 Conversion des taux en probabilités locales
+## 8.1 Conversion des taux en probabilités locales
 
 Le module "error_correction.py" utilise des probabilités d'erreur locales associées à une durée de cycle :
 
@@ -686,7 +686,7 @@ Cette conversion dépend du canal retenu et des approximations de réduction.
 
 Elle ne constitue pas une description complète des erreurs corrélées, cohérentes ou temporellement persistantes.
 
-8.2 Code de répétition de phase
+## 8.2 Code de répétition de phase
 
 Le modèle de répétition de phase considère une distance impaire (d).
 
@@ -714,7 +714,7 @@ Cette expression suppose des erreurs indépendantes et identiquement distribuée
 
 Elle ne décrit pas automatiquement les erreurs corrélées ou les erreurs de mesure.
 
-8.3 Budget d'erreur logique
+## 8.3 Budget d'erreur logique
 
 Le budget logique agrège les contributions d'erreurs selon les hypothèses du modèle.
 
@@ -722,7 +722,7 @@ Lorsque plusieurs contributions sont combinées par une formule d'indépendance,
 
 Une combinaison de probabilités marginales ne doit pas être interprétée comme une distribution conjointe exacte en l'absence de vérification de l'indépendance.
 
-8.4 Prototype de chirurgie de réseau
+## 8.4 Prototype de chirurgie de réseau
 
 Le prototype de chirurgie de réseau étudie une séquence de type :
 
@@ -763,7 +763,7 @@ Elle ne doit pas être présentée comme :
 - une validation d'une architecture matérielle ;
 - une preuve de correction d'erreurs universelle.
 
-8.5 Décodage géométrique
+## 8.5 Décodage géométrique
 
 Le module "geometric_mwpm_decoder.py" explore une pondération du décodage par des informations géométriques et par le biais local.
 
@@ -784,7 +784,7 @@ Une pondération géométrique ne suffit pas, à elle seule, à établir ces pro
 
 ---
 
-9. Structure du dépôt
+# 9. Structure du dépôt
 
 L'organisation du dépôt sépare les modules de calcul, les orchestrateurs et les tests.
 
@@ -823,7 +823,7 @@ Cette arborescence décrit l'organisation documentée du projet. Les noms de mod
 
 ---
 
-10. Rôle des modules
+# 10. Rôle des modules
 
 Module| Responsabilité
 "fluxonium_core.py"| Structures et constantes liées au modèle Fluxonium
@@ -842,7 +842,7 @@ Module| Responsabilité
 
 ---
 
-11. Installation
+# 11. Installation
 
 Créer un environnement virtuel :
 
@@ -868,7 +868,7 @@ Les dépendances doivent être conformes aux déclarations de "requirements.txt"
 
 ---
 
-12. Exécution
+# 12. Exécution
 
 Les points d'entrée présents dans le dépôt sont :
 
@@ -886,7 +886,7 @@ Un point d'entrée ne doit être annoncé comme opérationnel qu'après une exé
 
 ---
 
-13. Tests
+# 13. Tests
 
 Lancer la suite :
 
@@ -919,7 +919,7 @@ Aucun résultat de test ne doit être annoncé comme réussi sans exécution eff
 
 ---
 
-14. Limites scientifiques
+# 14. Limites scientifiques
 
 Les principales limites du pipeline sont les suivantes :
 
@@ -939,7 +939,7 @@ Expérience| Aucune validation expérimentale intégrée
 
 ---
 
-15. Feuille de route de validation
+# 15. Feuille de route de validation
 
 Les étapes suivantes sont des objectifs de recherche et de validation.
 
@@ -1005,7 +1005,7 @@ P6 — Intégration physique
 
 ---
 
-16. Bonnes pratiques d'interprétation
+# 16. Bonnes pratiques d'interprétation
 
 Les résultats du pipeline doivent être présentés avec leur niveau de preuve.
 
@@ -1037,7 +1037,7 @@ Pour chaque résultat quantitatif, documenter autant que possible :
 
 ---
 
-17. Positionnement du projet
+# 17. Positionnement du projet
 
 Quantum-Lab étudie une question centrale :
 
