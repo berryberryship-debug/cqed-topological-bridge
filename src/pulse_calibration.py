@@ -1,173 +1,426 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-Module : pulse_calibration.py
-Calibration d'impulsions micro-ondes (Gaussienne & DRAG) avec correction
-de décalage de Bloch-Siegert à basse fréquence et intégration de l'équation
-maîtresse de Lindblad pour le contrôle haute fidélité du Fluxonium.
+pulse_calibration.py
+
+Calibration empirique des pulses quantiques (pi, pi/2, etc.).
+
+Rôle
+----
+Fournir une interface générique pour calibrer l'amplitude d'un pulse
+en balayant un facteur multiplicatif autour de l'amplitude RWA théorique,
+puis en retenant le facteur qui maximise la fidélité.
+
+Cela corrige le décalage entre RWA stricte et simulation complète
+(hors RWA), où les termes contre-tournants introduisent un facteur
+correctif (typiquement 0.5 pour un pulse pi).
+
+Utilisation
+-----------
+Le module est agnostique au modèle physique : il prend en entrée une
+fonction `simulate_pulse(amplitude) -> float` (fidélité) et une
+amplitude RWA de référence.
+
+Auteur : [Votre nom]
+Licence : MIT
 """
 
-import math
-from dataclasses import dataclass
-from typing import Dict, List
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+from dataclasses import dataclass, asdict
+from pathlib import Path
+from typing import Callable, Dict, List, Optional, Tuple
+
 import numpy as np
-from scipy.integrate import solve_ivp
+
+LOGGER = logging.getLogger(__name__)
+
+
+# ----------------------------------------------------------------------
+# Paramètres
+# ----------------------------------------------------------------------
+
+@dataclass
+class CalibrationConfig:
+    """
+    Configuration de la calibration.
+
+    target_angle   : angle de rotation cible (pi pour un pulse pi)
+    scan_min       : borne inférieure du facteur de scan
+    scan_max       : borne supérieure du facteur de scan
+    n_points       : nombre de points du scan
+    rwa_correction : facteur correctif par défaut (0.5 pour pulse pi)
+    """
+
+    target_angle: float = np.pi
+    scan_min: float = 0.3
+    scan_max: float = 1.0
+    n_points: int = 15
+    rwa_correction: float = 0.5
+
+    def __post_init__(self):
+        if self.target_angle <= 0:
+            raise ValueError("target_angle doit être positif.")
+        if self.scan_min <= 0 or self.scan_max <= self.scan_min:
+            raise ValueError("scan_min doit être positif et < scan_max.")
+        if self.n_points < 2:
+            raise ValueError("n_points doit être au moins 2.")
+        if not 0 < self.rwa_correction <= 2.0:
+            raise ValueError("rwa_correction doit être dans (0, 2].")
+
+    def to_dict(self) -> Dict[str, float]:
+        """Sérialise la configuration."""
+        return asdict(self)
 
 
 @dataclass
-class PulseConfig:
-    t_gate_ns: float = 20.0
-    drag_coeff: float = 0.0
-    detuning_GHz: float = 0.0
-    bloch_siegert_comp: bool = True
-    n_steps: int = 300
+class CalibrationResult:
+    """
+    Résultat d'une calibration.
+
+    best_factor    : facteur multiplicatif optimal
+    best_fidelity  : fidélité maximale obtenue
+    best_amplitude : amplitude calibrée
+    scan_factors   : liste des facteurs testés
+    scan_fidelities: liste des fidélités correspondantes
+    """
+
+    best_factor: float
+    best_fidelity: float
+    best_amplitude: float
+    scan_factors: List[float]
+    scan_fidelities: List[float]
+
+    def to_dict(self) -> Dict[str, float]:
+        """Sérialise le résultat."""
+        return asdict(self)
+
+    def save(self, path: Path):
+        """Sauvegarde le résultat en JSON."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(self.to_dict(), f, indent=2)
+        LOGGER.info("Résultat de calibration sauvegardé : %s", path)
 
 
-class FluxoniumPulseCalibrator:
-    """Simulateur dynamique Lindblad et calibrateur de portes quantiques."""
+# ----------------------------------------------------------------------
+# Calibration générique
+# ----------------------------------------------------------------------
 
-    def __init__(
-        self,
-        energies_GHz: np.ndarray,
-        phi_matrix: np.ndarray,
-        T1_us: float = 100.0,
-        T_phi_us: float = 100.0,
-        dim: int = 4
-    ):
-        self.dim = dim
-        E_rel = (energies_GHz[:dim] - energies_GHz[0]) * 2.0 * np.pi
-        self.H0 = np.diag(E_rel).astype(np.complex128)
-        self.phi_op = np.real(phi_matrix[:dim, :dim]).astype(np.complex128)
+def calibrate_pulse(
+    simulate_pulse: Callable[[float], float],
+    amplitude_rwa: float,
+    config: Optional[CalibrationConfig] = None,
+) -> CalibrationResult:
+    """
+    Calibre l'amplitude d'un pulse par balayage.
 
-        self.omega_01 = E_rel[1]
-        self.alpha_rad_ns = (E_rel[2] - E_rel[1]) - E_rel[1] if dim > 2 else 10.0
-        self.phi_01 = abs(self.phi_op[0, 1])
-        self.collapse_ops = self._build_lindblad_ops(T1_us, T_phi_us)
+    Paramètres
+    ----------
+    simulate_pulse : fonction amplitude -> fidélité (float entre 0 et 1)
+    amplitude_rwa  : amplitude théorique RWA de référence
+    config         : configuration de la calibration
 
-    def _build_lindblad_ops(self, T1_us: float, T_phi_us: float) -> List[np.ndarray]:
-        """Construit les opérateurs de relaxation et de déphasage en unités ns^-1."""
-        ops = []
-        g1 = 1.0 / max(T1_us * 1e3, 1.0)
-        gphi = 1.0 / max(T_phi_us * 1e3, 1.0)
+    Retourne
+    --------
+    CalibrationResult avec le meilleur facteur, la meilleure fidélité
+    et l'amplitude calibrée.
+    """
+    if config is None:
+        config = CalibrationConfig()
 
-        L10 = np.zeros((self.dim, self.dim), dtype=np.complex128)
-        L10[0, 1] = math.sqrt(g1)
-        ops.append(L10)
+    scan_factors = list(
+        np.linspace(config.scan_min, config.scan_max, config.n_points)
+    )
+    scan_fidelities: List[float] = []
 
-        if self.dim > 2:
-            L21 = np.zeros((self.dim, self.dim), dtype=np.complex128)
-            L21[1, 2] = math.sqrt(2.0 * g1)
-            ops.append(L21)
+    best_factor = None
+    best_fidelity = -1.0
+    best_amplitude = None
 
-        Lphi = np.zeros((self.dim, self.dim), dtype=np.complex128)
-        Lphi[1, 1] = math.sqrt(2.0 * gphi)
-        ops.append(Lphi)
-        return ops
+    for factor in scan_factors:
+        amplitude = amplitude_rwa * factor
+        fidelity = simulate_pulse(amplitude)
+        scan_fidelities.append(fidelity)
 
-    def _envelopes(self, t: float, cfg: PulseConfig):
-        """Retourne les composantes en phase I(t) et en quadrature Q(t) (DRAG)."""
-        if t < 0.0 or t > cfg.t_gate_ns:
-            return 0.0, 0.0
-        sigma = cfg.t_gate_ns / 4.0
-        t0 = 0.5 * cfg.t_gate_ns
-        g_t = math.exp(-0.5 * ((t - t0) / sigma) ** 2)
-        g_0 = math.exp(-0.5 * ((0.0 - t0) / sigma) ** 2)
-        env_I = (g_t - g_0) / (1.0 - g_0)
+        if fidelity > best_fidelity:
+            best_fidelity = fidelity
+            best_factor = factor
+            best_amplitude = amplitude
 
-        d_env = -((t - t0) / (sigma ** 2)) * g_t / (1.0 - g_0)
-        env_Q = -(cfg.drag_coeff / self.alpha_rad_ns) * d_env
-        return env_I, env_Q
+    LOGGER.info(
+        "Calibration : facteur=%.3f, fidélité=%.4f, amplitude=%.3e",
+        best_factor, best_fidelity, best_amplitude,
+    )
 
-    def run_gate(self, cfg: PulseConfig, target_angle: float = np.pi) -> Dict[str, np.ndarray]:
-        """Intègre l'équation maîtresse de Lindblad sur la durée t_gate_ns."""
-        t_eval = np.linspace(0.0, cfg.t_gate_ns, cfg.n_steps)
-        env_I_arr = np.array([self._envelopes(t, cfg)[0] for t in t_eval])
-        area = np.trapezoid(env_I_arr, t_eval)
+    return CalibrationResult(
+        best_factor=best_factor,
+        best_fidelity=best_fidelity,
+        best_amplitude=best_amplitude,
+        scan_factors=scan_factors,
+        scan_fidelities=scan_fidelities,
+    )
 
-        omega_max = (2.0 * target_angle) / (max(self.phi_01, 1e-4) * area)
 
-        # Compensation dynamique du décalage de Bloch-Siegert (régime basse fréquence Fluxonium)
-        bs_shift = 0.0
-        if cfg.bloch_siegert_comp and self.omega_01 > 1e-4:
-            omega_rabi_eff = 0.5 * omega_max * self.phi_01
-            bs_shift = (omega_rabi_eff ** 2) / (4.0 * self.omega_01)
+def calibrate_pi_pulse(
+    simulate_pulse: Callable[[float], float],
+    amplitude_rwa_pi: float,
+    config: Optional[CalibrationConfig] = None,
+) -> CalibrationResult:
+    """
+    Calibre spécifiquement un pulse pi.
 
-        omega_drive = self.omega_01 + bs_shift + 2.0 * np.pi * cfg.detuning_GHz
+    Wrapper autour de calibrate_pulse avec target_angle = pi.
+    """
+    if config is None:
+        config = CalibrationConfig()
+    config.target_angle = np.pi
+    return calibrate_pulse(simulate_pulse, amplitude_rwa_pi, config)
 
-        def rhs(t: float, rho_vec: np.ndarray) -> np.ndarray:
-            rho = rho_vec.reshape((self.dim, self.dim))
-            env_I, env_Q = self._envelopes(t, cfg)
-            signal = omega_max * (env_I * math.cos(omega_drive * t) + env_Q * math.sin(omega_drive * t))
-            H_t = self.H0 + signal * self.phi_op
 
-            drho = -1j * (H_t @ rho - rho @ H_t)
-            for L in self.collapse_ops:
-                Ld = np.conj(L.T)
-                drho += L @ rho @ Ld - 0.5 * ((Ld @ L) @ rho + rho @ (Ld @ L))
-            return drho.reshape(-1)
+def calibrate_half_pi_pulse(
+    simulate_pulse: Callable[[float], float],
+    amplitude_rwa_half_pi: float,
+    config: Optional[CalibrationConfig] = None,
+) -> CalibrationResult:
+    """
+    Calibre spécifiquement un pulse pi/2.
 
-        rho0 = np.zeros((self.dim, self.dim), dtype=np.complex128)
-        rho0[0, 0] = 1.0
+    Wrapper autour de calibrate_pulse avec target_angle = pi/2.
+    """
+    if config is None:
+        config = CalibrationConfig()
+    config.target_angle = np.pi / 2.0
+    return calibrate_pulse(simulate_pulse, amplitude_rwa_half_pi, config)
 
-        sol = solve_ivp(
-            rhs,
-            (0.0, cfg.t_gate_ns),
-            rho0.reshape(-1),
-            t_eval=t_eval,
-            method="RK45",
-            rtol=1e-7,
-            atol=1e-9
+
+# ----------------------------------------------------------------------
+# Calibration adaptative (raffinement)
+# ----------------------------------------------------------------------
+
+def calibrate_pulse_adaptive(
+    simulate_pulse: Callable[[float], float],
+    amplitude_rwa: float,
+    config: Optional[CalibrationConfig] = None,
+    n_refinements: int = 3,
+) -> CalibrationResult:
+    """
+    Calibration adaptative : scan grossier puis raffinements successifs.
+
+    À chaque raffinement, la plage de scan est resserrée autour du
+    meilleur facteur trouvé précédemment.
+
+    n_refinements : nombre de raffinements (0 = scan simple)
+    """
+    if config is None:
+        config = CalibrationConfig()
+
+    # Scan initial
+    result = calibrate_pulse(simulate_pulse, amplitude_rwa, config)
+    best_factor = result.best_factor
+
+    # Raffinements successifs
+    for _ in range(n_refinements):
+        half_width = (config.scan_max - config.scan_min) / (2.0 * config.n_points)
+        new_min = max(1e-6, best_factor - half_width)
+        new_max = min(2.0, best_factor + half_width)
+
+        refined_config = CalibrationConfig(
+            target_angle=config.target_angle,
+            scan_min=new_min,
+            scan_max=new_max,
+            n_points=config.n_points,
+            rwa_correction=config.rwa_correction,
         )
-        pops = np.array([
-            np.real(np.diag(sol.y[:, i].reshape((self.dim, self.dim))))
-            for i in range(cfg.n_steps)
-        ])
+        result = calibrate_pulse(simulate_pulse, amplitude_rwa, refined_config)
+        best_factor = result.best_factor
 
-        return {
-            "time_ns": t_eval,
-            "populations": pops,
-            "fidelity_X": float(pops[-1, 1]),
-            "max_leakage_P2": float(np.max(pops[:, 2])) if self.dim > 2 else 0.0,
-            "omega_max_GHz": omega_max / (2.0 * np.pi),
-            "bloch_siegert_MHz": (bs_shift / (2.0 * np.pi)) * 1e3
-        }
+    LOGGER.info(
+        "Calibration adaptative terminée. Facteur final : %.4f",
+        best_factor,
+    )
+    return result
 
-    def optimize_drag(
-        self,
-        t_gate_ns: float = 16.0,
-        drag_grid: np.ndarray = np.linspace(-1.0, 1.0, 11)
-    ) -> Dict[str, float]:
-        """Balaye le coefficient DRAG pour minimiser la fuite P(|2>)."""
-        best_drag = 0.0
-        min_leak = 1.0
-        best_fid = 0.0
 
-        for d_val in drag_grid:
-            res = self.run_gate(
-                PulseConfig(t_gate_ns=t_gate_ns, drag_coeff=float(d_val), n_steps=180)
-            )
-            if res["max_leakage_P2"] < min_leak:
-                min_leak = res["max_leakage_P2"]
-                best_drag = float(d_val)
-                best_fid = res["fidelity_X"]
+# ----------------------------------------------------------------------
+# Intégration avec les modèles
+# ----------------------------------------------------------------------
 
-        return {
-            "optimal_drag": best_drag,
-            "min_leakage_P2": min_leak,
-            "fidelity_X": best_fid
-        }
+def calibrate_fluxonium_pi_pulse(
+    fluxonium_model,
+    config: Optional[CalibrationConfig] = None,
+    adaptive: bool = False,
+    n_refinements: int = 3,
+) -> CalibrationResult:
+    """
+    Calibre un pulse pi pour un modèle fluxonium.
+
+    fluxonium_model : instance de FluxoniumModel
+    """
+    amplitude_rwa = fluxonium_model.pulse_amplitude_rwa(np.pi)
+
+    def simulate(amplitude: float) -> float:
+        result = fluxonium_model.simulate_x_gate(amplitude)
+        return result["fidelity"]
+
+    if adaptive:
+        return calibrate_pulse_adaptive(
+            simulate, amplitude_rwa, config, n_refinements
+        )
+    return calibrate_pulse(simulate, amplitude_rwa, config)
+
+
+def calibrate_kerr_cat_pi_pulse(
+    kerr_cat_simulator,
+    config: Optional[CalibrationConfig] = None,
+    adaptive: bool = False,
+    n_refinements: int = 3,
+) -> CalibrationResult:
+    """
+    Calibre un pulse pi pour un simulateur Kerr-cat.
+
+    kerr_cat_simulator : instance de KerrCatSimulator
+    """
+    # Pour Kerr-cat, l'amplitude RWA dépend du modèle spécifique.
+    # Ici on utilise une amplitude de référence générique.
+    amplitude_rwa = 1.0  # à adapter selon le modèle
+
+    def simulate(amplitude: float) -> float:
+        # À adapter : simulation d'un pulse sur le Kerr-cat
+        # Pour l'instant, on retourne une fidélité proxy.
+        # Cette fonction devra être connectée au simulateur réel.
+        raise NotImplementedError(
+            "La simulation de pulse Kerr-cat n'est pas encore connectée."
+        )
+
+    if adaptive:
+        return calibrate_pulse_adaptive(
+            simulate, amplitude_rwa, config, n_refinements
+        )
+    return calibrate_pulse(simulate, amplitude_rwa, config)
+
+
+# ----------------------------------------------------------------------
+# Tests unitaires
+# ----------------------------------------------------------------------
+
+def test_calibration_finds_optimum():
+    """Vérifie que la calibration trouve le facteur optimal."""
+
+    # Fonction de test : fidélité maximale à facteur = 0.5
+    def simulate(amplitude: float) -> float:
+        # amplitude_rwa = 1.0, donc facteur = amplitude
+        factor = amplitude
+        # Fidélité gaussienne centrée sur 0.5
+        return float(np.exp(-((factor - 0.5) ** 2) / 0.01))
+
+    config = CalibrationConfig(
+        scan_min=0.3, scan_max=1.0, n_points=15
+    )
+    result = calibrate_pulse(simulate, 1.0, config)
+    assert abs(result.best_factor - 0.5) < 0.05, (
+        f"Facteur optimal incorrect : {result.best_factor}"
+    )
+    assert result.best_fidelity > 0.95, "Fidélité trop faible."
+
+
+def test_adaptive_refines():
+    """Vérifie que la calibration adaptative raffine le résultat."""
+
+    def simulate(amplitude: float) -> float:
+        factor = amplitude
+        return float(np.exp(-((factor - 0.5) ** 2) / 0.001))
+
+    config = CalibrationConfig(
+        scan_min=0.3, scan_max=1.0, n_points=10
+    )
+    result = calibrate_pulse_adaptive(
+        simulate, 1.0, config, n_refinements=2
+    )
+    assert abs(result.best_factor - 0.5) < 0.02, (
+        f"Raffinement insuffisant : {result.best_factor}"
+    )
+
+
+def run_all_tests():
+    """Lance tous les tests."""
+    test_calibration_finds_optimum()
+    test_adaptive_refines()
+    LOGGER.info("Tous les tests sont passés.")
+
+
+# ----------------------------------------------------------------------
+# CLI
+# ----------------------------------------------------------------------
+
+def main():
+    """Point d'entrée CLI."""
+    parser = argparse.ArgumentParser(
+        description="Calibration de pulses quantiques."
+    )
+    parser.add_argument(
+        "--target_angle", type=float, default=np.pi,
+        help="Angle de rotation cible."
+    )
+    parser.add_argument(
+        "--scan_min", type=float, default=0.3,
+        help="Borne inférieure du scan."
+    )
+    parser.add_argument(
+        "--scan_max", type=float, default=1.0,
+        help="Borne supérieure du scan."
+    )
+    parser.add_argument(
+        "--n_points", type=int, default=15,
+        help="Nombre de points du scan."
+    )
+    parser.add_argument(
+        "--adaptive", action="store_true",
+        help="Active la calibration adaptative."
+    )
+    parser.add_argument(
+        "--n_refinements", type=int, default=3,
+        help="Nombre de raffinements adaptatifs."
+    )
+    parser.add_argument(
+        "--output", type=str, default="results/calibration.json",
+        help="Fichier de sortie."
+    )
+    parser.add_argument("--test", action="store_true")
+
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO)
+
+    if args.test:
+        run_all_tests()
+        return
+
+    # Exemple avec une fonction de test
+    def simulate_demo(amplitude: float) -> float:
+        factor = amplitude
+        return float(np.exp(-((factor - 0.5) ** 2) / 0.01))
+
+    config = CalibrationConfig(
+        target_angle=args.target_angle,
+        scan_min=args.scan_min,
+        scan_max=args.scan_max,
+        n_points=args.n_points,
+    )
+    if args.adaptive:
+        result = calibrate_pulse_adaptive(
+            simulate_demo, 1.0, config, args.n_refinements
+        )
+    else:
+        result = calibrate_pulse(simulate_demo, 1.0, config)
+
+    result.save(Path(args.output))
+    LOGGER.info(
+        "Calibration terminée. Meilleur facteur : %.4f, fidélité : %.4f",
+        result.best_factor, result.best_fidelity,
+    )
 
 
 if __name__ == "__main__":
-    energies_demo = np.array([0.6928, 0.9300, 4.6359, 6.2000])
-    phi_demo = np.zeros((4, 4))
-    phi_demo[0, 1] = phi_demo[1, 0] = 2.5851
-    phi_demo[1, 2] = phi_demo[2, 1] = 2.9500
-
-    cal = FluxoniumPulseCalibrator(energies_demo, phi_demo, T1_us=150.0, T_phi_us=200.0, dim=4)
-    res = cal.run_gate(PulseConfig(t_gate_ns=20.0))
-    print(
-        f"[Pulse Lindblad OK] Fidélité porte X = {res['fidelity_X']*100:.4f}% | "
-        f"Fuite max P(|2>) = {res['max_leakage_P2']*100:.5f}% | "
-        f"Shift Bloch-Siegert = +{res['bloch_siegert_MHz']:.2f} MHz"
-    )
+    main()
