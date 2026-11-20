@@ -1,53 +1,68 @@
-# Quantum-Lab — Fluxonium–Lattice Surgery Bridge ($d=3$, 21 Qubits) & Bosonic QEC
+# Quantum-Lab — Fluxonium–Lattice Surgery Bridge (d=3, 21 Qubits) & Bosonic QEC
 
-Coupled physical-to-topological simulation suite connecting superconducting circuit quantum electrodynamics (**cQED — Fluxonium & Kerr-Cat**) to **fault-tolerant rotated surface code lattice surgery** ($d=3$) and biased-noise quantum error correction.
+Pipeline multi-échelle paramétré par la physique cQED, connectant
+les qubits supraconducteurs (**Fluxonium & Kerr-Cat**) à la
+**chirurgie de réseau sur code de surface tourné (d=3, 21 qubits)**
+et à la **correction d'erreurs quantique à bruit biaisé**.
 
----
+## Statut scientifique (honnête)
 
-## 1. Architecture du Pipeline
+Ce projet est un **pipeline multi-échelle**, pas encore une
+dérivation physique de bout en bout validée expérimentalement.
+La chaîne est :
 
-Le modèle relie le niveau matériel microscopique aux protocoles de correction d'erreurs topologiques sur un réseau replié en zigzag de **21 qubits supraconducteurs** (2 patchs logiques $L_1, L_2$ de 9 qubits de données + 3 qubits ancillaires d'interface), tout en intégrant la dynamique de fluxons, le contrôle DRAG/Lindblad et les architectures bosoniques Kerr-Cat :
+Fluxonium (T1, T_phi, d f01/d Phi, g_FS)
+    → noise_channel (canal AD + déphasage, Pauli twirl exact)
+    → p_X, p_Y, p_Z
+    → error_correction (budget d'erreur logique)
+    → chirurgie de réseau (Monte-Carlo, code de surface d=3)
 
-1. **Modulation spatiale du substrat (`coordonnees_reseau_21q` & `modulation_moire_substrat`) :**
-   Modélise un gradient spatial de flux $\delta\Phi_i$ pondéré par une enveloppe gaussienne autour du point doux $\Phi_{\text{ext}} = \pi$ sur la géométrie millimétrique du processeur.
-2. **Noyau dynamique conservatif (`evoluer_noyau_conservatif` — `fluxon_engine.py`) :**
-   Maintient un bilan de masse strictement fermé ($r \le 10^{-15}$) entre les impulsions de contrôle, la propagation de fluxons et la relaxation pour fixer la densité effective de quasiparticules hors équilibre ($x_{\text{qp}}$).
-3. **Solveur Hamiltonien Fluxonium microscopique (`SolveurFluxonium` / `fluxonium_model.py`) :**
-   Diagonalise l'Hamiltonien individuel des nœuds supraconducteurs (base de Fock $N_{\text{basis}} = 35$ ou différences finies d'ordre 4 en phase $\hat{\phi}$) :
-   $$H_i = 4E_C(\hat{n} - n_g)^2 + \frac{1}{2}E_L\hat{\phi}^2 - E_{J,i}\cos(\hat{\phi} - \Phi_i)$$
-   Extrait les temps de relaxation diélectrique, inductive et par quasiparticules ($T_{1,i}$), le déphasage pur de flux $1/f$ ($T_{\phi,i}$), la suppression de dispersion de charge $n_g$, ainsi que la métrique locale de Fubini–Study :
-   $$g_{\Phi\Phi,i} = \frac{1 - \vert{}\langle \psi_0(\Phi_i) \vert{} \psi_0(\Phi_i + d\Phi) \rangle\vert{}^2}{d\Phi^2}$$
-4. **Contrôle micro-onde & Équation maîtresse de Lindblad (`pulse_calibration.py`) :**
-   Calibre les portes quantiques ($X$, $\sqrt{X}$) par enveloppes gaussiennes et correction **DRAG**, exploitant l'anharmonicité positive géante ($\alpha = f_{12} - f_{01} > 0$) au point doux $\Phi_{\text{ext}} = \pi$ pour supprimer la fuite vers $\vert{}2\rangle$.
-5. **Qubit bosonique Kerr-Cat (`kerr_cat_simulator.py`) :**
-   Modélise la stabilisation d'états chats de Schrödinger $\vert{}\mathcal{C}_\alpha^\pm\rangle \propto \vert{}\alpha\rangle \pm \vert{}-\alpha\rangle$ sous pompage à deux photons ($\hat{H} = -K\hat{a}^{\dagger 2}\hat{a}^2 + \varepsilon_2(\hat{a}^{\dagger 2} + \hat{a}^2)$), la fonction de Wigner $W(x, p)$ et le biais exponentiel du bruit ($T_X \gg T_Z$).
-6. **Chirurgie de réseau hétérogène & QEC à bruit biaisé (`SimChirurgie21Q` & `error_correction.py`) :**
-   Convertit les taux locaux $(T_{1,i}, T_{\phi,i})$ en canal de Pauli asymétrique $(p_{X,i}, p_{Z,i})$ sur la durée de cycle $\tau_{\text{cycle}}$ et exécute :
-   * Le protocole complet de chirurgie de réseau *Init $\to$ Merge ($d$ rounds) $\to$ Split $\to$ Measure $Z_{L1}$ $\to$ Pauli Frame* avec décodage par syndrome de poids minimal ($d=3$, 21 qubits).
-   * Les codes de répétition de phase à distance impaire $d$ optimisés pour les architectures à fort biais $\eta = p_Z / (p_X + p_Y)$.
+L'interface géométrie → p_Z est fermée par un **Pauli twirling
+exact** (via la matrice de transfert de Pauli), pas par une
+approximation postulée. Le couplage géométrique
+(`fs_coupling_gamma`) reste **phénoménologique** et est
+clairement étiqueté comme tel.
 
----
+**Ce qui n'est PAS implémenté (et ne doit pas être annoncé) :**
+- Contrôle DRAG (non implémenté)
+- Fonction de Wigner (non implémentée)
+- Lattice surgery stabilizer-level complet (prototype seulement)
+- Validation expérimentale
 
-## 2. Structure du Dépôt
+## 1. Architecture du pipeline
 
-```text
-Quantum-lab/
-├── src/
-│   ├── __init__.py               # Exports unifiés du package
-│   ├── fluxon_engine.py          # Noyau conservatif (r <= 1e-15) & dynamique des fluxons
-│   ├── fluxonium_model.py        # Solveur Hamiltonien, métrique Fubini-Study & T1/T_phi/T2
-│   ├── pulse_calibration.py      # Équation maîtresse de Lindblad & optimisation DRAG
-│   ├── kerr_cat_simulator.py     # Oscillateur Kerr-Cat, fonction de Wigner & biais de bruit
-│   └── error_correction.py       # Chirurgie de réseau 21Q & QEC Pauli biaisé
-├── tests/
-│   ├── test_fluxon.py
-│   ├── test_fluxonium.py
-│   ├── test_kerr_cat.py
-│   └── test_error_correction.py
-├── notebooks/
-│   └── fluxonium_dashboard.ipynb # Tableau de bord interactif multi-panneaux
-├── results/                      # Graphiques et rapports générés
-├── README.md
-├── LICENSE
-├── pyproject.toml
-└── requirements.txt
+1. **Modulation spatiale du substrat** : gradient spatial de flux
+   delta_Phi_i pondéré par une enveloppe gaussienne autour du
+   point doux Phi_ext = pi.
+
+2. **Noyau dynamique conservatif** : bilan de masse fermé
+   (résidu <= 1e-10) régulant la densité effective de
+   quasiparticules hors équilibre (x_qp).
+
+3. **Solveur Hamiltonien Fluxonium microscopique** :
+   diagonalise l'Hamiltonien en base de phase (Dirichlet,
+   stencil central) :
+   H = 4 EC n² + 0.5 EL (phi - phi_ext)² - EJ cos(phi)
+   Extrait T1, T_phi, QGT, métrique de Fubini-Study
+   (différence symétrique, convergence validée).
+
+4. **Canal de bruit & Pauli twirling exact** :
+   convertit (T1, T_phi, tau) en canal de Pauli exact via la
+   matrice de transfert de Pauli (PTM).
+   Le twirl de l'amplitude damping donne p_X = p_Y = gamma/4,
+   p_Z = gamma/2 ; le déphasage pur donne p_Z = lambda_z.
+   La composition est exacte (produit des diagonales du PTM).
+
+5. **Qubit bosonique Kerr-Cat** : stabilisation d'états chats
+   sous pompage à deux photons, équation maîtresse de Lindblad,
+   intégration RK4, fidélité logique et leakage.
+
+6. **Chirurgie de réseau & QEC à bruit biaisé** :
+   convertit les taux locaux (T1_i, T_phi_i) en canal de Pauli
+   asymétrique (p_X_i, p_Z_i) sur la durée de cycle tau_cycle,
+   et exécute le protocole de chirurgie de réseau
+   Init → Merge (d rounds) → Split → Measure Z_L1
+   avec décodage par syndrome de poids 1 (d=3, 21 qubits),
+   ainsi que les codes de répétition de phase à distance impaire d.
+
+## 2. Structure du dépôt (réelle)
