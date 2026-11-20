@@ -1,100 +1,297 @@
-# Quantum-Lab — Fluxonium–Lattice Surgery Bridge (d=3, 21 Qubits) & Bosonic QEC
-
-Pipeline multi-échelle paramétré par la physique cQED, connectant
-les qubits supraconducteurs (**Fluxonium & Kerr-Cat**) à la
-**chirurgie de réseau sur code de surface tourné (d=3, 21 qubits)**
-et à la **correction d'erreurs quantique à bruit biaisé**.
-
-## Statut scientifique (honnête)
-
-Ce projet est un **pipeline multi-échelle**, pas encore une
-dérivation physique de bout en bout validée expérimentalement.
-La chaîne est :
-
-Fluxonium (T1, T_phi, d f01/d Phi, g_FS)
-    → noise_channel (canal AD + déphasage, Pauli twirl exact)
-    → p_X, p_Y, p_Z
-    → error_correction (budget d'erreur logique)
-    → chirurgie de réseau (Monte-Carlo, code de surface d=3)
-
-L'interface géométrie → p_Z est fermée par un **Pauli twirling
-exact** (via la matrice de transfert de Pauli), pas par une
-approximation postulée. Le couplage géométrique
-(`fs_coupling_gamma`) reste **phénoménologique** et est
-clairement étiqueté comme tel.
-
-**Ce qui n'est PAS implémenté (et ne doit pas être annoncé) :**
-- Contrôle DRAG (non implémenté)
-- Fonction de Wigner (non implémentée)
-- Lattice surgery stabilizer-level complet (prototype seulement)
-- Validation expérimentale
-
-## 1. Architecture du pipeline
-
-1. **Modulation spatiale du substrat** : gradient spatial de flux
-   delta_Phi_i pondéré par une enveloppe gaussienne autour du
-   point doux Phi_ext = pi.
-
-2. **Noyau dynamique conservatif** : bilan de masse fermé
-   (résidu <= 1e-10) régulant la densité effective de
-   quasiparticules hors équilibre (x_qp).
-
-3. **Solveur Hamiltonien Fluxonium microscopique** :
-   diagonalise l'Hamiltonien en base de phase (Dirichlet,
-   stencil central) :
-   H = 4 EC n² + 0.5 EL (phi - phi_ext)² - EJ cos(phi)
-   Extrait T1, T_phi, QGT, métrique de Fubini-Study
-   (différence symétrique, convergence validée).
-
-4. **Canal de bruit & Pauli twirling exact** :
-   convertit (T1, T_phi, tau) en canal de Pauli exact via la
-   matrice de transfert de Pauli (PTM).
-   Le twirl de l'amplitude damping donne p_X = p_Y = gamma/4,
-   p_Z = gamma/2 ; le déphasage pur donne p_Z = lambda_z.
-   La composition est exacte (produit des diagonales du PTM).
-
-5. **Qubit bosonique Kerr-Cat** : stabilisation d'états chats
-   sous pompage à deux photons, équation maîtresse de Lindblad,
-   intégration RK4, fidélité logique et leakage.
-
-6. **Chirurgie de réseau & QEC à bruit biaisé** :
-   convertit les taux locaux (T1_i, T_phi_i) en canal de Pauli
-   asymétrique (p_X_i, p_Z_i) sur la durée de cycle tau_cycle,
-   et exécute le protocole de chirurgie de réseau
-   Init → Merge (d rounds) → Split → Measure Z_L1
-   avec décodage par syndrome de poids 1 (d=3, 21 qubits),
-   ainsi que les codes de répétition de phase à distance impaire d.
-
-## 2. Structure du dépôt (réelle)
-
-```text
-cqed-topological-bridge/
-├── __init__.py                    # Initialisation du paquet Python
-├── pyproject.toml                # Configuration du build et métadonnées du projet
-├── requirements.txt               # Dépendances d'exécution (NumPy, SciPy, etc.)
-├── LICENSE                        # Licence logicielle
-├── README.md                      # Documentation principale du pipeline
+Quantum-Lab — Fluxonium–Lattice Surgery Bridge
+Pipeline multi-échelle : Fluxonium, bruit, QEC biaisée, Kerr-cat et chirurgie de réseau d=3
+Ce dépôt implémente un pipeline numérique multi-échelle reliant la modélisation de qubits supraconducteurs Fluxonium et Kerr-cat à des canaux de bruit, à la correction d’erreurs quantique (QEC) à bruit biaisé, et à un prototype de chirurgie de réseau sur code de surface tourné de distance d=3, utilisant 21 qubits.
+Le projet connecte plusieurs niveaux de description :
+Substrat et quasiparticules
 │
-├── run_pipeline.py                # Point d'entrée principal pour l'exécution du pipeline standard
-├── pont_lourd_unifie.py           # Orchestrateur complet du pont cQED → chirurgie 21 qubits
-├── edifice.py                    # Architecture globale et couplage des couches dynamiques
+▼
+Fluxonium : T1, T_phi, df01/dPhi, g_FS
 │
-├── fluxonium_core.py              # Structures de données, constantes et grilles de phase
-├── fluxonium_hamiltonian.py       # Construction matricielle et diagonalisation de H (Dirichlet)
-├── fluxonium_model.py             # Calcul des observables (T1, T_phi, ∂f01/∂Φ, dipôles)
-├── fluxon_engine.py               # Modulation spatiale du substrat et bilan conservatif x_qp
-├── fubini_study_manifold.py       # Calcul du QGT et de la métrique de Fubini-Study (g_FS)
-├── pulse_calibration.py           # Calibrage d'enveloppes d'impulsions et leakage (sans DRAG)
+▼
+Canal de bruit : amplitude damping + déphasage
 │
-├── noise_channel.py               # Matrice de transfert de Pauli (PTM) et Pauli twirling exact
-├── kerr_cat_simulator.py          # Solveur Lindblad RK4 pour qubit bosonique Kerr-Cat
+▼
+Pauli twirling : pX, pY, pZ
 │
-├── error_correction.py            # Codes de répétition, budget d'erreur et simulation chirurgie d=3
-├── geometric_mwpm_decoder.py      # Décodeur MWPM pondéré par la géométrie et le biais local
+▼
+Budget d’erreur et QEC biaisée
 │
-└── test/                          # Suite de tests unitaires et d'intégration
-    ├── test_fluxonium.py          # Validation du spectre, des états propres et convergence
-    ├── test_fubini_study.py      # Vérification du QGT et de la convergence de g_FS
-    ├── test_kerr_cat.py           # Validation RK4 Lindblad, fidélité et leakage Kerr-Cat
-    ├── test_error_correction.py   # Tests des codes de répétition et budget d'erreur biaisé
-    └── test_chirurgie_21q_pont.py # Test d'intégration bout-en-bout du pont sur 21 qubits
+▼
+Chirurgie de réseau : code de surface tourné d=3
+Ce dépôt est un pipeline de modélisation numérique multi-échelle. Il n’est pas une démonstration expérimentale, ni une dérivation physique complète de bout en bout.
+1. Statut scientifique et périmètre épistémique
+Le pipeline sépare explicitement :
+les quantités calculées à partir d’un modèle physique ;
+les paramètres phénoménologiques ;
+les approximations de réduction ;
+les prototypes de correction d’erreurs ;
+les éléments non validés expérimentalement.
+Il ne faut pas confondre :
+un modèle numérique ;
+une prédiction expérimentale ;
+une calibration matérielle ;
+une démonstration de seuil de QEC ;
+une implémentation complète de correction d’erreurs ;
+une architecture physique entièrement dérivée.
+Le pipeline est conçu pour étudier la cohérence d’une chaîne de modélisation, pas pour affirmer qu’une architecture matérielle fonctionnera telle quelle.
+1.1 Ce qui est implémenté
+Hamiltonien Fluxonium en base de phase.
+Diagonalisation numérique du spectre.
+Observables T1, T_phi, df01/dPhi.
+Quantum geometric tensor (QGT).
+Métrique de Fubini–Study g_FS.
+Modèle de quasiparticules froides pour la petite jonction.
+Canal d’amplitude damping et déphasage pur.
+Pauli twirling via matrice de transfert de Pauli.
+Canal de Pauli effectif pX, pY, pZ.
+Qubit bosonique Kerr-cat.
+Équation maîtresse de Lindblad et intégration RK4.
+Codes de répétition de phase.
+Budget d’erreur logique.
+Prototype de chirurgie de réseau sur code de surface tourné d=3.
+Décodeur MWPM pondéré par la géométrie et le biais local.
+1.2 Ce qui n’est pas implémenté
+Contrôle DRAG.
+Fonction de Wigner.
+Dynamique microscopique complète des quasiparticules.
+Quasiparticules dans le réseau inductif.
+Asymétrie de gap supraconducteur.
+Couplage physique complet entre quatre Fluxonium.
+Chirurgie de réseau complète au niveau des stabilisateurs.
+Validation expérimentale.
+1.3 Ce qui reste phénoménologique
+Le couplage géométrique fs_coupling_gamma.
+La réduction des qubits Fluxonium à des qubits à deux niveaux.
+La conversion des taux continus en probabilités de Pauli par cycle.
+Le traitement du bruit quasi statique comme un canal effectif.
+Le couplage XX entre qubits, lorsqu’il est utilisé comme entrée.
+Les paramètres de modulation spatiale du substrat.
+2. Architecture du pipeline
+2.1 Vue d’ensemble
+Le pipeline suit la chaîne suivante :
+Substrat et quasiparticules
+│
+▼
+Fluxonium : T1, T_phi, df01/dPhi, g_FS
+│
+▼
+Canal de bruit : amplitude damping + déphasage
+│
+▼
+Pauli twirling : pX, pY, pZ
+│
+▼
+Budget d’erreur et QEC biaisée
+│
+▼
+Chirurgie de réseau : code de surface tourné d=3
+Chaque étape produit des paramètres ou des observables utilisés par l’étape suivante.
+2.2 Modulation spatiale du substrat
+Le module fluxon_engine.py décrit une modulation spatiale du substrat.
+Chaque qubit i reçoit un décalage de flux :
+ΔΦ_i.
+Ce décalage est pondéré par une enveloppe gaussienne centrée autour du point doux :
+Φ_ext = π.
+La modulation spatiale permet de générer des paramètres locaux différents pour chaque qubit :
+ΔΦ_i
+→ Φ_ext,i
+→ f01,i
+→ T1_i
+→ T_phi_i
+→ pX_i, pY_i, pZ_i
+Cette étape ne prétend pas décrire une fabrication réelle. Elle fournit un cadre paramétrique pour étudier l’effet d’une inhomogénéité spatiale sur les taux de bruit locaux.
+2.3 Noyau dynamique conservatif
+Le module fluxon_engine.py maintient un bilan effectif de densité de quasiparticules hors équilibre :
+x_qp.
+Le bilan est conçu comme conservatif :
+x_qp(t + dt) = x_qp(t) + production - pertes
+avec une contrainte numérique :
+|résidu de bilan| <= 1e-10
+Le bilan permet de réguler la densité effective de quasiparticules utilisée par la couche Fluxonium.
+Important : ce bilan ne décrit pas une dynamique microscopique complète des quasiparticules dans un circuit supraconducteur réel. Il ne modélise notamment pas :
+la diffusion des quasiparticules ;
+le piégeage dans les défauts ;
+la recombinaison ;
+les effets de bord ;
+les quasiparticules dans le réseau inductif ;
+les asymétries de gap supraconducteur.
+3. Solveur Hamiltonien Fluxonium
+3.1 Hamiltonien
+Le module fluxonium_hamiltonian.py construit et diagonalise l’Hamiltonien du Fluxonium en base de phase.
+Les conditions aux limites sont de type Dirichlet. La discrétisation utilise un stencil central.
+L’Hamiltonien est :
+H = 4 EC n² + 0.5 EL (phi - phi_ext)² - EJ cos(phi).
+Les énergies sont exprimées en unités de h, c’est-à-dire en GHz.
+3.2 Quantités extraites
+Le solveur extrait notamment :
+les niveaux d’énergie ;
+les états propres ;
+les fréquences de transition ;
+les éléments de matrice ;
+les dipôles de charge et de phase ;
+les taux de relaxation ;
+les taux de déphasage ;
+le quantum geometric tensor ;
+la métrique de Fubini–Study.
+3.3 Convergence
+La convergence est vérifiée par raffinement de grille et par différences symétriques.
+Les tests comparent notamment :
+les fréquences de transition ;
+les éléments de matrice ;
+les dérivées de fréquence ;
+la métrique de Fubini–Study ;
+la stabilité des états propres.
+La convergence locale ne garantit pas une convergence globale sur tout l’espace des paramètres.
+4. Observables du Fluxonium
+4.1 Observables principales
+Le module fluxonium_model.py calcule les observables physiques utilisées par les couches supérieures du pipeline.
+4.2 Sensibilité au flux
+La dérivée de fréquence est utilisée pour relier une fluctuation de flux à une fluctuation de fréquence :
+δf01 = (df01/dΦ) δΦ.
+Au premier ordre, une fluctuation de flux produit donc une fluctuation de fréquence.
+Au second ordre, la courbure de la fréquence contribue également :
+δf01 = (df01/dΦ) δΦ + 0.5 (d²f01/dΦ²) δΦ².
+4.3 Métrique de Fubini–Study
+La métrique de Fubini–Study mesure la sensibilité géométrique de l’état fondamental aux variations du paramètre de flux. Elle est calculée à partir du quantum geometric tensor.
+Important : la métrique de Fubini–Study ne détermine pas à elle seule un couplage physique entre qubits. Le couplage géométrique fs_coupling_gamma reste un paramètre phénoménologique.
+5. Quasiparticules froides
+5.1 Modèle implémenté
+Le modèle de relaxation par quasiparticules implémenté concerne la petite jonction Josephson, dans l’approximation des quasiparticules froides.
+Le taux descendant est de la forme :
+Gamma_qp_down = (8/pi) (EJ/hbar) x_qp sqrt(2 Delta/(h f01)) |<0|sin((phi - phi_ext)/2)|1>|².
+5.2 Hypothèses
+Les hypothèses sont :
+quasiparticules froides ;
+énergie typique des quasiparticules très inférieure à h f01 ;
+h f01 << Delta ;
+petite jonction uniquement ;
+aucun taux montant QP ;
+aucune contribution QP du réseau inductif ;
+aucune asymétrie de gap supraconducteur ;
+aucun piègeage ou recombinaison microscopique.
+5.3 Portée du modèle
+Le taux QP calculé est donc un taux de la petite jonction, et non le taux QP total d’un Fluxonium réel. Il ne doit pas être interprété comme une description complète des quasiparticules dans un circuit Fluxonium.
+6. Canal de bruit et Pauli twirling
+6.1 Canal de bruit
+Le module noise_channel.py convertit les taux locaux en un canal de Pauli effectif sur une durée tau.
+Il combine :
+l’amplitude damping ;
+le déphasage pur ;
+une composition via la matrice de transfert de Pauli (PTM).
+6.2 Amplitude damping
+Pour un canal d’amplitude damping de paramètre gamma, le twirling de Pauli donne :
+pX = pY = gamma/4,
+pZ = gamma/2.
+6.3 Déphasage pur
+Pour un déphasage pur de paramètre lambda_Z, le twirling donne :
+pZ = lambda_Z.
+6.4 Composition des canaux
+La composition des canaux est réalisée par produit des diagonales de leurs matrices de transfert de Pauli.
+Le canal de Pauli effectif est donc :
+(pX, pY, pZ).
+6.5 Réserve importante
+Le canal de Pauli est une représentation effective des erreurs sur la durée tau. Il ne reproduit pas entièrement :
+la dynamique temporelle du bruit quasi statique 1/f ;
+les corrélations temporelles entre cycles ;
+les effets non markoviens ;
+la non-exponentialité de la cohérence de Ramsey ;
+l’effet de la courbure d²f01/dΦ² ;
+les sauts d’amplitude et de phase simultanés.
+Le bruit quasi statique ne doit pas être converti automatiquement en un taux de déphasing markovien.
+7. Qubit bosonique Kerr-cat
+7.1 Dynamique Lindblad
+Le module kerr_cat_simulator.py implémente une dynamique Lindblad pour un qubit bosonique Kerr-cat.
+Il inclut :
+pompage à deux photons ;
+intégration RK4 ;
+fidélité logique ;
+estimation du leakage.
+7.2 Indépendance du modèle
+Ce module est indépendant du modèle Fluxonium. Il ne doit pas être présenté comme une simulation couplée Fluxonium–Kerr-cat complète.
+8. Correction d’erreurs et chirurgie de réseau
+8.1 Conversion des taux
+Le module error_correction.py convertit les taux locaux en probabilités d’erreur de Pauli sur la durée d’un cycle tau_cycle.
+Il implémente :
+des codes de répétition de phase pour d impair ;
+un budget d’erreur logique ;
+un prototype de chirurgie de réseau sur code de surface tourné d=3 ;
+une séquence :
+Init
+→ Merge (d rounds)
+→ Split
+→ Measure Z_L1
+8.2 Décodage
+Le décodage utilise un syndrome de poids 1. Le module geometric_mwpm_decoder.py permet une pondération du décodage MWPM par la géométrie et le biais local.
+8.3 Réserve importante
+La chirurgie de réseau est un prototype. Elle ne constitue pas :
+une implémentation complète au niveau des stabilisateurs ;
+une démonstration de seuil de correction d’erreurs ;
+une validation d’une architecture matérielle ;
+une preuve de correction d’erreurs universelle.
+9. Structure du dépôt
+.
+├── init.py
+├── error_correction.py
+├── fluxon_engine.py
+├── fluxonium_hamiltonian.py
+├── fluxonium_model.py
+├── fubini_study_manifold.py
+├── geometric_mwpm_decoder.py
+├── kerr_cat_simulator.py
+├── noise_channel.py
+├── pulse_calibration.py
+│
+├── test/
+│   ├── test_chirurgie_21q_pont.py
+│   ├── test_error_correction.py
+│   ├── test_fluxonium.py
+│   ├── test_fubini_study.py
+│   └── test_kerr_cat.py
+│
+├── LICENSE
+├── README.md
+├── edifice.py
+├── fluxonium_core.py
+├── pont_lourd_unifie.py
+├── pyproject.toml
+├── requirements.txt
+└── run_pipeline.py
+10. Rôle des modules
+11. Installation
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+12. Exécution
+Pipeline standard
+python run_pipeline.py
+Orchestrateur complet
+python pont_lourd_unifie.py
+13. Tests
+pytest test/
+Les tests valident des propriétés structurelles et numériques :
+spectre et convergence du Fluxonium ;
+convergence de la métrique de Fubini–Study ;
+cohérence du solveur Lindblad Kerr-cat ;
+codes de répétition et budget d’erreur ;
+intégration du pont sur 21 qubits.
+Ils ne remplacent pas une validation expérimentale.
+14. Limites scientifiques
+Ce pipeline ne doit pas être interprété comme une prédiction expérimentale directe.
+Les principales limites sont :
+le couplage géométrique reste phénoménologique ;
+le canal de Pauli est une réduction effective ;
+le bruit quasi statique n’est pas un canal de Lindblad markovien ;
+les QP du réseau inductif ne sont pas modélisées ;
+l’asymétrie de gap n’est pas modélisée ;
+la chirurgie de réseau est un prototype ;
+aucun contrôle DRAG n’est implémenté ;
+aucune validation expérimentale n’est incluse.
+15. Bonnes pratiques
+Ne pas affirmer que le pipeline :
+dérive un seuil de QEC ;
+valide une architecture matérielle ;
+prédit une fidélité expérimentale ;
+implémente une correction d’erreurs complète ;
+modélise toutes les sources de quasiparticules ;
+remplace une calibration expérimentale.
+Le pipeline est un outil de modélisation et de prototypage multi-échelle.
