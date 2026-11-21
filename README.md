@@ -139,6 +139,80 @@ Les éléments suivants nécessitent une qualification particulière :
 - Toute relation postulée entre une métrique géométrique et une probabilité d'erreur.
 
 Ces paramètres doivent être documentés avec leurs unités, leur domaine de validité et leur méthode de calibration.
+## 1.3 ## Audit : corrections et points ouverts
+
+*Section à insérer après « Statut scientifique et périmètre épistémique ». Rédigée à partir de la page GitHub du dépôt et du README long. Le code, les tests et la CI n'ont pas été lus : tout ce qui touche à leur contenu est marqué « à vérifier ».*
+
+### A. Cohérence documentaire (à trancher)
+
+Deux versions du README coexistent et se contredisent. La version prudente (périmètre épistémique) est retenue ici comme référence.
+
+| Point | Version courte | Version prudente (référence) |
+|---|---|---|
+| DRAG / pulse_calibration | Implémenté | Non implémenté |
+| Fonction de Wigner | Présente | Non implémentée |
+| Tolérance du bilan | r ≤ 1e-15 | 1e-10 |
+| Chirurgie de réseau | « Protocole complet » | Prototype Monte-Carlo |
+| Kerr-Cat | « Couplé » | Branche indépendante |
+| Dérivées en phase | Ordre 4 ou Fock N=35 | Stencil central, Dirichlet |
+
+Actions : supprimer la version courte, ou la mettre à jour après vérification dans le code.
+
+### B. Correction mathématique : twirling de l'amplitude damping
+
+Remplace les probabilités du §6.2. Avec γ = 1 − e^(−τ/T1), la PTM de l'amplitude damping a pour diagonale (1, √(1−γ), √(1−γ), 1−γ). Les probabilités de Pauli sont p_P = (1 + Σ ± λ_i)/4, ce qui donne :
+
+- p_X = p_Y = γ/4
+- p_Z = (2 − γ − 2√(1−γ)) / 4 ≈ γ²/16 pour γ petit
+- p_I = 1 − p_X − p_Y − p_Z
+
+L'ancienne valeur p_Z = γ/2 est erronée. Référence : Ghosh, Fowler, Geller (2012), twirling de l'amplitude damping pour le code de surface (référence complète à vérifier).
+
+Formules vérifiées et conservées :
+
+- Déphasage pur : p_Z = (1 − e^(−τ/Tφ))/2
+- 1/T2 = 1/(2T1) + 1/Tφ
+
+**Test à ajouter :** pour γ ∈ {1e-4, 1e-2, 0.3, 0.9}, comparer les p calculés à la formule fermée ci-dessus, et vérifier Σp = 1.
+
+### C. Bilan de quasiparticules : portée du test
+
+Si le résidu R_qp = x(t+Δt) − x(t) − P + L est calculé avec la formule qui met à jour x, il est nul par construction. Il vérifie alors l'arithmétique, pas la physique.
+
+- Documenter comment x(t+Δt) est calculé.
+- Ajouter un test indépendant (solution analytique d'un cas simple, ou comparaison avec un intégrateur de référence).
+- Pour 1e-15 : l'epsilon machine en float64 vaut environ 2,2e-16 ; une tolérance de cet ordre est irréaliste sur de longues intégrations. Justifier ou relâcher.
+
+### D. Comptage des qubits (chirurgie 21Q)
+
+« 2 patchs × 9 qubits de données + 3 ancillas d'interface = 21 » ne comprend pas les ancillas de stabilisateurs. À ma connaissance, un patch tourné d=3 compte 9 données + 8 ancillas = 17 qubits (Horsman et al., *New J. Phys.* 14, 123011, 2012). Préciser ce que représentent les 21 qubits, ou renommer le prototype.
+
+### E. Conventions à unifier
+
+- Position du flux : (φ − φ_ext)² dans une version, cos(φ − Φ) dans l'autre ; terme n_g présent dans une seule. Fixer une convention et son signe.
+- La métrique de Fubini–Study par différence finie, g ≈ (1 − |⟨ψ|ψ(Φ+dΦ)⟩|²)/dΦ², est correcte à l'ordre dominant ; préciser l'état utilisé (fondamental ou état de qubit) et le pas dΦ.
+- Préfacteur du taux quasiparticules (8/π) : à confronter à Pop et al., *Nature* 508, 369 (2014) ; non vérifié ici.
+
+### F. Hygiène du dépôt
+
+- Renommer `NOYAU QUANTIQUE V52.py` (espaces, majuscules) ; retirer les numéros de version des noms de fichiers (git suffit).
+- Aligner l'arborescence du README sur le dépôt : `test/` ou `tests/`, `notebooks/`, `results/`, présence de `run_pipeline.py`.
+- Ajouter une CI (GitHub Actions) exécutant `python -m pytest -q`, avec badge.
+
+### G. Sources à vérifier avant publication
+
+| Sujet | Référence | Statut |
+|---|---|---|
+| Twirling de l'amplitude damping | Ghosh, Fowler, Geller (2012) | Titre et lien à confirmer |
+| Chirurgie de réseau | Horsman et al., NJP 14, 123011 (2012) | À confirmer |
+| Quasiparticules, fluxonium | Pop et al., Nature 508, 369 (2014) | À confirmer |
+| Kerr-Cat | Puri, Boutin, Blais, npj Quantum Inf. 3, 18 (2017) | À confirmer |
+
+Aucun lien n'a été ouvert ni vérifié à ce stade. Les références sont données de mémoire : en cas de doute, « Je ne sais pas ».
+
+### H. Interface de recherche
+
+Le « ? » entre géométrie quantique (g_FS) et canal de bruit reste l'interface ouverte du projet. Tant qu'une relation physique testable n'est pas établie, `fs_coupling_gamma` reste un paramètre phénoménologique, et toute analogie entre géométrie et erreur relève de l'hypothèse de travail, pas du résultat.
 
 ---
 
