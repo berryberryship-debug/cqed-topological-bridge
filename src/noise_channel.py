@@ -1,463 +1,443 @@
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
 """
-NOISE CHANNEL — Pauli twirling et composition PTM.
+NOISE CHANNEL — FLUXONIUM
+=========================
 
-Unités :
+Canaux effectifs :
+    - relaxation (amplitude damping) ;
+    - déphasage pur ;
+    - composition des canaux ;
+    - représentation Pauli-twirled ;
+    - conversion entre représentation PTM et probabilités de Pauli ;
+    - contribution phénoménologique du bruit de flux.
+
+Conventions :
     T1, T_phi, tau : secondes
-    df01_dphi : GHz / Phi0
-    S_phi : Phi0² / GHz (convention phénoménologique)
-    Probabilités : sans dimension
+    S_phi          : Phi0²/GHz
+    df01_dphi      : GHz/Phi0
 
-Le bruit de flux est désactivé par défaut.
-Sa convention spectrale doit être justifiée avant toute interprétation
-physique quantitative.
+Attention :
+    La contribution du bruit de flux est un modèle phénoménologique.
+    Elle dépend de la convention spectrale adoptée pour S_phi.
+    Elle n'est pas activée implicitement.
 """
 
 from __future__ import annotations
 
-import argparse
-import json
-import logging
-import math
 from dataclasses import asdict, dataclass
-from pathlib import Path
-from typing import Dict, Tuple
+from math import exp, isfinite, isinf, isnan, sqrt
+from typing import Optional
 
-LOGGER = logging.getLogger(__name__)
-PAULI_KEYS = ("I", "X", "Y", "Z")
-_TOL = 1e-12
+import numpy as np
 
 
-def _finite(name: str, value: float) -> float:
-    value = float(value)
-    if not math.isfinite(value):
-        raise ValueError(f"{name} doit être fini.")
-    return value
+_EPS = 1e-12
 
 
-def _positive_time(
-    name: str,
-    value: float,
-    allow_infinity: bool = False,
-) -> float:
+def _require_finite_positive(name: str, value: float) -> float:
+    """Valide une valeur réelle finie et strictement positive."""
     value = float(value)
 
-    if math.isnan(value) or value <= 0.0:
-        raise ValueError(f"{name} doit être strictement positif.")
-
-    if math.isinf(value) and not (
-        allow_infinity and value > 0.0
-    ):
-        raise ValueError(f"{name} doit être fini.")
+    if not isfinite(value) or value <= 0.0:
+        raise ValueError(f"{name} doit être fini et strictement positif.")
 
     return value
 
 
-def _validate_probabilities(
-    probs: Dict[str, float],
-) -> Dict[str, float]:
-    missing = set(PAULI_KEYS) - set(probs)
-    if missing:
+def _require_positive_or_inf(name: str, value: float) -> float:
+    """Autorise +inf, mais rejette NaN, zéro et les valeurs négatives."""
+    value = float(value)
+
+    if isnan(value) or value <= 0.0:
         raise ValueError(
-            f"Probabilités manquantes : {sorted(missing)}"
+            f"{name} doit être strictement positif ; +inf est autorisé."
         )
 
-    result = {k: float(probs[k]) for k in PAULI_KEYS}
+    return value
 
-    for key, value in result.items():
-        _finite(key, value)
-        if value < -_TOL or value > 1.0 + _TOL:
-            raise ValueError(
-                f"Probabilité {key} hors de [0,1] : {value}"
-            )
 
-    total = sum(result.values())
-    if not math.isclose(total, 1.0, rel_tol=0.0, abs_tol=1e-10):
+def _validate_probabilities(probabilities: np.ndarray) -> np.ndarray:
+    """Valide et nettoie un vecteur de probabilités."""
+    p = np.asarray(probabilities, dtype=float)
+
+    if p.shape != (4,):
+        raise ValueError("Le vecteur de probabilités doit avoir 4 éléments.")
+
+    if not np.all(np.isfinite(p)):
+        raise ValueError("Les probabilités doivent être finies.")
+
+    if np.any(p < -_EPS) or np.any(p > 1.0 + _EPS):
+        raise ValueError("Probabilité hors de l'intervalle [0, 1].")
+
+    p = np.clip(p, 0.0, 1.0)
+
+    total = float(np.sum(p))
+
+    if not np.isclose(total, 1.0, atol=1e-10, rtol=0.0):
         raise ValueError(
-            f"Canal non normalisé : somme={total:.16g}"
+            f"La somme des probabilités doit être égale à 1 ; somme={total}."
         )
 
-    # Correction des seules erreurs d'arrondi, suivie d'une
-    # renormalisation explicite.
-    result = {k: max(0.0, v) for k, v in result.items()}
-    total = sum(result.values())
-
-    if total <= 0.0:
-        raise ValueError("Somme des probabilités nulle.")
-
-    result = {k: v / total for k, v in result.items()}
-    return result
-
-
-def amplitude_damping_twirl(gamma: float) -> Dict[str, float]:
-    """
-    Pauli twirling exact du canal amplitude damping standard.
-
-    K0 = diag(1, sqrt(1-gamma))
-    K1 = sqrt(gamma) |0><1|
-    """
-    gamma = _finite("gamma", gamma)
-
-    if not 0.0 <= gamma <= 1.0:
-        raise ValueError("gamma doit appartenir à [0,1].")
-
-    root = math.sqrt(1.0 - gamma)
-
-    return _validate_probabilities({
-        "I": ((1.0 + root) ** 2) / 4.0,
-        "X": gamma / 4.0,
-        "Y": gamma / 4.0,
-        "Z": ((1.0 - root) ** 2) / 4.0,
-    })
-
-
-def dephasing_twirl(lambda_z: float) -> Dict[str, float]:
-    lambda_z = _finite("lambda_z", lambda_z)
-
-    if not 0.0 <= lambda_z <= 1.0:
-        raise ValueError("lambda_z doit appartenir à [0,1].")
-
-    return {
-        "I": 1.0 - lambda_z,
-        "X": 0.0,
-        "Y": 0.0,
-        "Z": lambda_z,
-    }
+    return p
 
 
 def relaxation_dephasing_rates(
-    T1: float,
-    T_phi: float,
-    tau: float,
-) -> Tuple[float, float]:
-    """Retourne gamma_1 et lambda_z pour une durée tau."""
-    T1 = _positive_time("T1", T1)
-    T_phi = _positive_time(
-        "T_phi", T_phi, allow_infinity=True
-    )
-    tau = _positive_time("tau", tau)
+    T1_s: float,
+    T_phi_s: float,
+) -> dict:
+    """
+    Convertit les temps de cohérence en taux.
 
-    gamma_1 = -math.expm1(-tau / T1)
+    gamma_1   = 1/T1
+    gamma_phi = 1/T_phi
+    gamma_2   = gamma_1/2 + gamma_phi
 
-    if math.isinf(T_phi):
-        lambda_z = 0.0
-    else:
-        lambda_z = -0.5 * math.expm1(-tau / T_phi)
+    T_phi = +inf correspond à l'absence de déphasage pur.
+    """
+    T1 = _require_finite_positive("T1_s", T1_s)
+    T_phi = _require_positive_or_inf("T_phi_s", T_phi_s)
 
-    return gamma_1, lambda_z
+    gamma_1 = 1.0 / T1
+    gamma_phi = 0.0 if isinf(T_phi) else 1.0 / T_phi
+    gamma_2 = 0.5 * gamma_1 + gamma_phi
 
+    T2 = 1.0 / gamma_2
 
-def pauli_transfer_matrix_diag(
-    probs: Dict[str, float],
-) -> Tuple[float, float, float]:
-    p = _validate_probabilities(probs)
-
-    return (
-        p["I"] + p["X"] - p["Y"] - p["Z"],
-        p["I"] - p["X"] + p["Y"] - p["Z"],
-        p["I"] - p["X"] - p["Y"] + p["Z"],
-    )
-
-
-def probs_from_ptm_diag(
-    Rxx: float,
-    Ryy: float,
-    Rzz: float,
-) -> Dict[str, float]:
-    Rxx = _finite("Rxx", Rxx)
-    Ryy = _finite("Ryy", Ryy)
-    Rzz = _finite("Rzz", Rzz)
-
-    probs = {
-        "I": (1.0 + Rxx + Ryy + Rzz) / 4.0,
-        "X": (1.0 + Rxx - Ryy - Rzz) / 4.0,
-        "Y": (1.0 - Rxx + Ryy - Rzz) / 4.0,
-        "Z": (1.0 - Rxx - Ryy + Rzz) / 4.0,
+    return {
+        "T1_s": T1,
+        "T_phi_s": T_phi,
+        "T2_s": float(T2),
+        "gamma_1_per_s": float(gamma_1),
+        "gamma_phi_per_s": float(gamma_phi),
+        "gamma_2_per_s": float(gamma_2),
     }
 
-    for key, value in probs.items():
-        if value < -1e-10 or value > 1.0 + 1e-10:
-            raise ValueError(
-                f"PTM non physique : p_{key}={value:.12g}"
-            )
 
-    return _validate_probabilities(probs)
+def amplitude_damping_pauli_twirling(gamma: float) -> np.ndarray:
+    """
+    Probabilités de la twirl de Pauli du canal d'amortissement
+    d'amplitude.
+
+    gamma = 1 - exp(-tau/T1)
+
+    Ordre retourné :
+        [I, X, Y, Z]
+    """
+    gamma = float(gamma)
+
+    if not isfinite(gamma) or gamma < 0.0 or gamma > 1.0:
+        raise ValueError("gamma doit appartenir à [0, 1].")
+
+    root = sqrt(max(0.0, 1.0 - gamma))
+
+    probabilities = np.array(
+        [
+            ((1.0 + root) ** 2) / 4.0,
+            gamma / 4.0,
+            gamma / 4.0,
+            ((1.0 - root) ** 2) / 4.0,
+        ],
+        dtype=float,
+    )
+
+    return _validate_probabilities(probabilities)
+
+
+def pure_dephasing_pauli_twirling(
+    tau_s: float,
+    T_phi_s: float,
+) -> np.ndarray:
+    """
+    Probabilités du canal de déphasage pur.
+
+    Ordre retourné :
+        [I, X, Y, Z]
+
+    Le canal est :
+        rho_01 -> exp(-tau/T_phi) * rho_01
+    """
+    tau = _require_finite_positive("tau_s", tau_s)
+    T_phi = _require_positive_or_inf("T_phi_s", T_phi_s)
+
+    decay = 1.0 if isinf(T_phi) else exp(-tau / T_phi)
+
+    p_z = 0.5 * (1.0 - decay)
+    p_i = 1.0 - p_z
+
+    return _validate_probabilities(
+        np.array([p_i, 0.0, 0.0, p_z], dtype=float)
+    )
+
+
+def probabilities_to_ptm_diag(probabilities: np.ndarray) -> np.ndarray:
+    """
+    Convertit les probabilités de Pauli en diagonale PTM.
+
+    Pour un canal Pauli :
+        PTM = diag(1, lambda_x, lambda_y, lambda_z)
+    """
+    p = _validate_probabilities(probabilities)
+    p_i, p_x, p_y, p_z = p
+
+    return np.array(
+        [
+            1.0,
+            p_i + p_x - p_y - p_z,
+            p_i - p_x + p_y - p_z,
+            p_i - p_x - p_y + p_z,
+        ],
+        dtype=float,
+    )
+
+
+def probs_from_ptm_diag(ptm_diag: np.ndarray) -> np.ndarray:
+    """Reconstruit les probabilités de Pauli depuis une diagonale PTM."""
+    lam = np.asarray(ptm_diag, dtype=float)
+
+    if lam.shape != (4,):
+        raise ValueError("La diagonale PTM doit avoir 4 éléments.")
+
+    if not np.all(np.isfinite(lam)):
+        raise ValueError("La diagonale PTM doit être finie.")
+
+    if not np.isclose(lam[0], 1.0, atol=1e-10, rtol=0.0):
+        raise ValueError("Le premier élément PTM doit être égal à 1.")
+
+    _, lx, ly, lz = lam
+
+    probabilities = np.array(
+        [
+            (1.0 + lx + ly + lz) / 4.0,
+            (1.0 + lx - ly - lz) / 4.0,
+            (1.0 - lx + ly - lz) / 4.0,
+            (1.0 - lx - ly + lz) / 4.0,
+        ],
+        dtype=float,
+    )
+
+    return _validate_probabilities(probabilities)
 
 
 def compose_pauli_channels(
-    channel_A: Dict[str, float],
-    channel_B: Dict[str, float],
-) -> Dict[str, float]:
-    """Composition C = B après A."""
-    ax, ay, az = pauli_transfer_matrix_diag(channel_A)
-    bx, by, bz = pauli_transfer_matrix_diag(channel_B)
+    probabilities_a: np.ndarray,
+    probabilities_b: np.ndarray,
+) -> np.ndarray:
+    """
+    Compose deux canaux Pauli indépendants.
 
-    return probs_from_ptm_diag(
-        ax * bx,
-        ay * by,
-        az * bz,
-    )
+    La composition est effectuée par multiplication des diagonales PTM.
+    """
+    p_a = _validate_probabilities(probabilities_a)
+    p_b = _validate_probabilities(probabilities_b)
 
+    ptm_a = probabilities_to_ptm_diag(p_a)
+    ptm_b = probabilities_to_ptm_diag(p_b)
 
-def pauli_twirl_channel(
-    T1: float,
-    T_phi: float,
-    tau: float,
-) -> Dict[str, float]:
-    gamma_1, lambda_z = relaxation_dephasing_rates(
-        T1, T_phi, tau
-    )
-
-    return compose_pauli_channels(
-        amplitude_damping_twirl(gamma_1),
-        dephasing_twirl(lambda_z),
-    )
+    return probs_from_ptm_diag(ptm_a * ptm_b)
 
 
-def flux_noise_to_dephasing_rate(
-    df01_dphi: float,
-    S_phi: float,
+def flux_noise_dephasing_rate(
+    df01_dphi_GHz_per_Phi0: float,
+    S_phi_Phi0_squared_per_GHz: float,
 ) -> float:
     """
-    Approximation phénoménologique :
+    Estimation phénoménologique du taux de déphasage dû au bruit de flux.
 
+    Unités :
+        df01_dphi : GHz/Phi0
+        S_phi     : Phi0²/GHz
+        résultat  : GHz
+
+    Convention utilisée :
         gamma_phi_GHz = 0.5 * (df01/dPhi)^2 * S_phi
 
-    Résultat converti en s^-1.
-
-    Cette expression n'est pas une formule universelle :
-    sa validité dépend de la convention spectrale et du régime de bruit.
+    Cette relation dépend de la convention de densité spectrale.
+    Elle ne constitue pas une formule universelle de décohérence.
     """
-    df01_dphi = _finite("df01_dphi", df01_dphi)
-    S_phi = _finite("S_phi", S_phi)
+    derivative = _require_finite_positive(
+        "df01_dphi_GHz_per_Phi0",
+        abs(float(df01_dphi_GHz_per_Phi0)),
+    )
 
-    if S_phi < 0.0:
-        raise ValueError("S_phi ne peut pas être négatif.")
+    spectral_density = _require_finite_positive(
+        "S_phi_Phi0_squared_per_GHz",
+        S_phi_Phi0_squared_per_GHz,
+    )
 
-    gamma_GHz = 0.5 * df01_dphi**2 * S_phi
-    return gamma_GHz * 1e9
-
-
-def dephasing_rate_to_T_phi(
-    gamma_phi_s: float,
-) -> float:
-    gamma_phi_s = _finite("gamma_phi_s", gamma_phi_s)
-
-    if gamma_phi_s < 0.0:
-        raise ValueError("Le taux ne peut pas être négatif.")
-
-    if gamma_phi_s == 0.0:
-        return math.inf
-
-    return 1.0 / gamma_phi_s
-
-
-def apply_readout_error(
-    pauli_probs: Dict[str, float],
-    p_readout: float,
-) -> Dict[str, float]:
-    p_readout = _finite("p_readout", p_readout)
-
-    if not 0.0 <= p_readout <= 1.0:
-        raise ValueError("p_readout doit appartenir à [0,1].")
-
-    if p_readout > 0.0:
-        LOGGER.info(
-            "Erreur de lecture classique séparée : %.6g",
-            p_readout,
-        )
-
-    return _validate_probabilities(pauli_probs)
+    return float(0.5 * derivative**2 * spectral_density)
 
 
 @dataclass(frozen=True)
 class ChannelConfig:
+    """Configuration d'un canal effectif sur une durée tau."""
+
     T1: float
     T_phi: float
     tau: float
-    df01_dphi: float = 0.0
-    S_phi: float = 0.0
-    p_readout: float = 0.0
+
+    df01_dphi: Optional[float] = None
+    S_phi: Optional[float] = None
     use_flux_noise: bool = False
-    combine_flux_noise: bool = False
 
-    def __post_init__(self):
-        _positive_time("T1", self.T1)
-        _positive_time(
-            "T_phi", self.T_phi, allow_infinity=True
-        )
-        _positive_time("tau", self.tau)
+    def __post_init__(self) -> None:
+        _require_finite_positive("T1", self.T1)
+        _require_positive_or_inf("T_phi", self.T_phi)
+        _require_finite_positive("tau", self.tau)
 
-        _finite("df01_dphi", self.df01_dphi)
-        _finite("S_phi", self.S_phi)
-        _finite("p_readout", self.p_readout)
+        if self.use_flux_noise:
+            if self.df01_dphi is None:
+                raise ValueError(
+                    "df01_dphi est requis lorsque use_flux_noise=True."
+                )
 
-        if self.S_phi < 0.0:
-            raise ValueError("S_phi ne peut pas être négatif.")
+            if self.S_phi is None:
+                raise ValueError(
+                    "S_phi est requis lorsque use_flux_noise=True."
+                )
 
-        if not 0.0 <= self.p_readout <= 1.0:
-            raise ValueError("p_readout doit appartenir à [0,1].")
-
-        if self.combine_flux_noise and not self.use_flux_noise:
-            raise ValueError(
-                "combine_flux_noise exige use_flux_noise=True."
+            _require_finite_positive(
+                "abs(df01_dphi)",
+                abs(float(self.df01_dphi)),
             )
+            _require_finite_positive("S_phi", self.S_phi)
 
-    def to_dict(self) -> Dict[str, object]:
-        result = asdict(self)
-        if math.isinf(self.T_phi):
-            result["T_phi"] = "Infinity"
-        return result
+        elif self.df01_dphi is not None:
+            if not isfinite(float(self.df01_dphi)):
+                raise ValueError("df01_dphi doit être fini.")
+
+        if self.S_phi is not None:
+            _require_finite_positive("S_phi", self.S_phi)
+
+    def to_dict(self) -> dict:
+        """Retourne la configuration sous forme de dictionnaire."""
+        return asdict(self)
 
 
-def build_pauli_channel(
-    config: ChannelConfig,
-) -> Dict[str, float]:
-    T_phi = config.T_phi
+def build_pauli_channel(config: ChannelConfig) -> dict:
+    """
+    Construit le canal effectif relaxation + déphasage.
+
+    Si use_flux_noise=True, le taux phénoménologique du bruit de flux
+    est ajouté au taux de déphasage pur.
+
+    Retourne :
+        - probabilités I, X, Y, Z ;
+        - diagonale PTM ;
+        - probabilités des sous-canaux ;
+        - taux effectifs utilisés.
+    """
+    if not isinstance(config, ChannelConfig):
+        raise TypeError("config doit être une instance de ChannelConfig.")
+
+    gamma_1 = 1.0 / config.T1
+    gamma_phi = 0.0 if isinf(config.T_phi) else 1.0 / config.T_phi
+
+    gamma_flux = 0.0
 
     if config.use_flux_noise:
-        if config.S_phi <= 0.0:
-            raise ValueError(
-                "use_flux_noise=True exige S_phi > 0."
-            )
-
-        gamma_flux = flux_noise_to_dephasing_rate(
-            config.df01_dphi,
-            config.S_phi,
+        gamma_flux_GHz = flux_noise_dephasing_rate(
+            df01_dphi_GHz_per_Phi0=config.df01_dphi,
+            S_phi_Phi0_squared_per_GHz=config.S_phi,
         )
 
-        if config.combine_flux_noise:
-            gamma_base = (
-                0.0 if math.isinf(T_phi) else 1.0 / T_phi
-            )
-            T_phi = dephasing_rate_to_T_phi(
-                gamma_base + gamma_flux
-            )
-        else:
-            T_phi = dephasing_rate_to_T_phi(gamma_flux)
+        # Conversion GHz -> s^-1.
+        gamma_flux = gamma_flux_GHz * 1e9
 
-    channel = pauli_twirl_channel(
-        T1=config.T1,
-        T_phi=T_phi,
-        tau=config.tau,
+    T_phi_effective = (
+        float("inf")
+        if gamma_phi + gamma_flux == 0.0
+        else 1.0 / (gamma_phi + gamma_flux)
     )
 
-    return apply_readout_error(channel, config.p_readout)
+    gamma_relaxation = -np.expm1(-config.tau / config.T1)
+
+    p_relaxation = amplitude_damping_pauli_twirling(
+        gamma_relaxation
+    )
+
+    p_dephasing = pure_dephasing_pauli_twirling(
+        tau_s=config.tau,
+        T_phi_s=T_phi_effective,
+    )
+
+    probabilities = compose_pauli_channels(
+        p_relaxation,
+        p_dephasing,
+    )
+
+    ptm_diag = probabilities_to_ptm_diag(probabilities)
+
+    return {
+        "probabilities": {
+            "I": float(probabilities[0]),
+            "X": float(probabilities[1]),
+            "Y": float(probabilities[2]),
+            "Z": float(probabilities[3]),
+        },
+        "probability_array": probabilities,
+        "ptm_diagonal": ptm_diag,
+        "relaxation_probabilities": p_relaxation,
+        "dephasing_probabilities": p_dephasing,
+        "rates": {
+            "gamma_1_per_s": float(gamma_1),
+            "gamma_phi_per_s": float(gamma_phi),
+            "gamma_flux_per_s": float(gamma_flux),
+            "gamma_phi_effective_per_s": float(
+                gamma_phi + gamma_flux
+            ),
+        },
+        "T_phi_effective_s": float(T_phi_effective),
+        "tau_s": float(config.tau),
+    }
 
 
 def effective_error_rate(
-    pauli_probs: Dict[str, float],
+    channel: dict,
+    convention: str = "1-pI",
 ) -> float:
-    p = _validate_probabilities(pauli_probs)
-    return 1.0 - p["I"]
+    """
+    Calcule un taux d'erreur effectif à partir du canal.
 
+    Conventions :
+        "1-pI"  : probabilité totale d'une erreur Pauli non identité.
+        "pX+pY" : contribution des composantes X et Y.
+        "pZ"    : contribution de la composante Z.
+    """
+    if "probabilities" not in channel:
+        raise ValueError("Le canal ne contient pas de probabilités.")
 
-def run_all_tests() -> None:
-    for gamma in (0.0, 1e-9, 0.1, 0.5, 1.0):
-        p = amplitude_damping_twirl(gamma)
-        assert abs(sum(p.values()) - 1.0) < 1e-12
+    p = channel["probabilities"]
 
-    gamma = 1e-5
-    p = amplitude_damping_twirl(gamma)
-    assert abs(p["X"] - gamma / 4.0) < 1e-14
-    assert abs(p["Y"] - gamma / 4.0) < 1e-14
-    assert p["Z"] < 1e-9
+    p_i = float(p["I"])
+    p_x = float(p["X"])
+    p_y = float(p["Y"])
+    p_z = float(p["Z"])
 
-    p = dephasing_twirl(0.05)
-    assert abs(sum(p.values()) - 1.0) < 1e-12
-
-    A = amplitude_damping_twirl(0.1)
-    B = dephasing_twirl(0.05)
-    C = amplitude_damping_twirl(0.2)
-
-    left = compose_pauli_channels(
-        compose_pauli_channels(A, B), C
-    )
-    right = compose_pauli_channels(
-        A, compose_pauli_channels(B, C)
-    )
-
-    for key in PAULI_KEYS:
-        assert abs(left[key] - right[key]) < 1e-12
-
-    original = {"I": 0.7, "X": 0.1, "Y": 0.1, "Z": 0.1}
-    reconstructed = probs_from_ptm_diag(
-        *pauli_transfer_matrix_diag(original)
-    )
-
-    for key in PAULI_KEYS:
-        assert abs(original[key] - reconstructed[key]) < 1e-12
-
-    channel = pauli_twirl_channel(
-        T1=1e-3,
-        T_phi=math.inf,
-        tau=1e-15,
-    )
-    assert channel["I"] > 0.999999
-
-    config = ChannelConfig(
-        T1=7e-6,
-        T_phi=math.inf,
-        tau=20e-9,
-    )
-    assert abs(sum(build_pauli_channel(config).values()) - 1.0) < 1e-10
-
-    print("Tous les tests noise_channel.py sont passés.")
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Canal de bruit et Pauli twirling."
-    )
-    parser.add_argument("--T1", type=float, default=7.19e-6)
-    parser.add_argument("--T_phi", type=float, default=45960e-6)
-    parser.add_argument("--tau", type=float, default=20e-9)
-    parser.add_argument("--df01_dphi", type=float, default=0.0)
-    parser.add_argument("--S_phi", type=float, default=0.0)
-    parser.add_argument("--use_flux_noise", action="store_true")
-    parser.add_argument("--combine_flux_noise", action="store_true")
-    parser.add_argument("--p_readout", type=float, default=0.0)
-    parser.add_argument("--output", type=str, default=None)
-    parser.add_argument("--test", action="store_true")
-    args = parser.parse_args()
-
-    logging.basicConfig(level=logging.INFO)
-
-    if args.test:
-        run_all_tests()
-        return
-
-    config = ChannelConfig(
-        T1=args.T1,
-        T_phi=args.T_phi,
-        tau=args.tau,
-        df01_dphi=args.df01_dphi,
-        S_phi=args.S_phi,
-        p_readout=args.p_readout,
-        use_flux_noise=args.use_flux_noise,
-        combine_flux_noise=args.combine_flux_noise,
-    )
-
-    channel = build_pauli_channel(config)
-    result = {
-        **channel,
-        "effective_error_rate": effective_error_rate(channel),
-        "configuration": config.to_dict(),
-    }
-
-    print(json.dumps(result, indent=2, allow_nan=False))
-
-    if args.output:
-        output_path = Path(args.output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(
-            json.dumps(result, indent=2, allow_nan=False),
-            encoding="utf-8",
+    if convention == "1-pI":
+        result = 1.0 - p_i
+    elif convention == "pX+pY":
+        result = p_x + p_y
+    elif convention == "pZ":
+        result = p_z
+    else:
+        raise ValueError(
+            "Convention inconnue. Utiliser '1-pI', 'pX+pY' ou 'pZ'."
         )
-        LOGGER.info("Résultat sauvegardé : %s", output_path)
+
+    return float(result)
 
 
-if __name__ == "__main__":
-    main()
+__all__ = [
+    "ChannelConfig",
+    "relaxation_dephasing_rates",
+    "amplitude_damping_pauli_twirling",
+    "pure_dephasing_pauli_twirling",
+    "probabilities_to_ptm_diag",
+    "probs_from_ptm_diag",
+    "compose_pauli_channels",
+    "flux_noise_dephasing_rate",
+    "build_pauli_channel",
+    "effective_error_rate",
+]
