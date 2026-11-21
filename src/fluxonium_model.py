@@ -1,18 +1,39 @@
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Module : fluxonium_model.py
-Modélisation spectrale, analyse de sensibilité au bruit (charge/flux)
-et évaluation des temps de cohérence (T1, T_phi, T2) d'un qubit Fluxonium.
+FLUXONIUM MODEL
+===============
+
+Solveur spectral par différences finies dans la base de phase.
+
+Convention :
+    H / h = 4 EC n² + EL/2 (phi - phi_ext)² - EJ cos(phi)
+
+Unités :
+    EJ, EC, EL : GHz
+    phi, phi_ext : radians (coordonnées de phase réduites)
+    energies : GHz
+
+Le module calcule :
+    - spectre du Fluxonium ;
+    - états propres ;
+    - éléments de matrice de phi et n ;
+    - fréquence f01 et anharmonicité ;
+    - dérivées numériques en flux.
+
+Il ne prétend pas déduire T1 ou T_phi du Hamiltonien statique.
+Ces temps exigent des modèles de dissipation et des densités spectrales.
 """
+
+from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
 from typing import Dict, Optional
+
 import numpy as np
 from scipy.linalg import eigh
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 
 
 @dataclass(frozen=True)
@@ -31,7 +52,7 @@ CONST = PhysicalConstants()
 
 @dataclass
 class FluxoniumHardwareParams:
-    name: str = "Fluxonium_Protege_Pi"
+    name: str = "Fluxonium"
     E_J_GHz: float = 4.0
     E_C_GHz: float = 1.0
     E_L_GHz: float = 0.5
@@ -47,110 +68,247 @@ class FluxoniumHardwareParams:
     Z_char_Ohms: float = field(init=False)
 
     def __post_init__(self):
-        E_J_J = self.E_J_GHz * 1e9 * CONST.h
-        E_C_J = self.E_C_GHz * 1e9 * CONST.h
-        E_L_J = self.E_L_GHz * 1e9 * CONST.h
+        for name in ("E_J_GHz", "E_C_GHz", "E_L_GHz"):
+            value = float(getattr(self, name))
+            if not math.isfinite(value) or value <= 0.0:
+                raise ValueError(f"{name} doit être strictement positif.")
 
-        self.L_nH = ((CONST.phi_0 ** 2) / E_L_J) * 1e9
-        self.C_fF = ((CONST.e ** 2) / (2.0 * E_C_J)) * 1e15
-        self.I_c_nA = (E_J_J / CONST.phi_0) * 1e9
-        self.Z_char_Ohms = math.sqrt((self.L_nH * 1e-9) / (self.C_fF * 1e-15))
+        EJ_J = self.E_J_GHz * 1e9 * CONST.h
+        EC_J = self.E_C_GHz * 1e9 * CONST.h
+        EL_J = self.E_L_GHz * 1e9 * CONST.h
+
+        self.L_nH = (CONST.phi_0 ** 2 / EL_J) * 1e9
+        self.C_fF = (CONST.e ** 2 / (2.0 * EC_J)) * 1e15
+        self.I_c_nA = (EJ_J / CONST.phi_0) * 1e9
+        self.Z_char_Ohms = math.sqrt(
+            (self.L_nH * 1e-9) / (self.C_fF * 1e-15)
+        )
 
 
 class FluxoniumHamiltonianSolver:
-    """Solveur par différences finies d'ordre 4 dans la base de phase supraconductrice."""
+    """
+    Solveur du Hamiltonien Fluxonium.
+
+    La grille contient uniquement les points intérieurs.
+    Les conditions aux limites de Dirichlet sont ainsi imposées
+    aux extrémités du domaine.
+
+    Le Laplacien utilise un stencil centré d'ordre 2, symétrique.
+    L'opérateur de charge est construit avec une dérivée centrée
+    antisymétrique, donc n_op est hermitien.
+    """
 
     def __init__(
         self,
         params: FluxoniumHardwareParams,
         n_grid: int = 500,
         phi_bound: float = 5.0 * np.pi,
-        n_states: int = 6
+        n_states: int = 6,
     ):
+        if n_grid < 20:
+            raise ValueError("n_grid doit être supérieur ou égal à 20.")
+        if not math.isfinite(phi_bound) or phi_bound <= 0.0:
+            raise ValueError("phi_bound doit être strictement positif.")
+        if not 2 <= n_states < n_grid:
+            raise ValueError("n_states doit être compris entre 2 et n_grid-1.")
+
         self.params = params
-        self.n_grid = n_grid
-        self.phi_bound = phi_bound
-        self.n_states = n_states
-        self.phi = np.linspace(-phi_bound, phi_bound, n_grid)
-        self.dphi = self.phi[1] - self.phi[0]
+        self.n_grid = int(n_grid)
+        self.phi_bound = float(phi_bound)
+        self.n_states = int(n_states)
+
+        # Points intérieurs : les deux frontières sont fixées à zéro.
+        full_grid = np.linspace(
+            -self.phi_bound,
+            self.phi_bound,
+            self.n_grid + 2,
+        )
+        self.phi = full_grid[1:-1]
+        self.dphi = float(full_grid[1] - full_grid[0])
+
         self._build_operators()
 
     def _build_operators(self) -> None:
-        N, h = self.n_grid, self.dphi
-        d1 = np.zeros((N, N), dtype=np.complex128)
-        d2 = np.zeros((N, N), dtype=np.float64)
+        N = self.n_grid
+        h = self.dphi
 
-        for i in range(N):
-            d2[i, i] = -30.0
-            if i - 1 >= 0:
-                d1[i, i - 1], d2[i, i - 1] = -8.0, 16.0
-            if i + 1 < N:
-                d1[i, i + 1], d2[i, i + 1] = 8.0, 16.0
-            if i - 2 >= 0:
-                d1[i, i - 2], d2[i, i - 2] = 1.0, -1.0
-            if i + 2 < N:
-                d1[i, i + 2], d2[i, i + 2] = -1.0, -1.0
+        # Laplacien tridiagonal symétrique.
+        D2 = np.zeros((N, N), dtype=np.float64)
+        idx = np.arange(N)
 
-        self.n_op = -1j * (d1 / (12.0 * h))
-        self.D2 = d2 / (12.0 * (h ** 2))
+        D2[idx, idx] = -2.0
+        D2[idx[1:], idx[:-1]] = 1.0
+        D2[idx[:-1], idx[1:]] = 1.0
+        D2 /= h ** 2
 
-    def potential(self, phi_ext: float, E_L_override: Optional[float] = None) -> np.ndarray:
-        E_L = self.params.E_L_GHz if E_L_override is None else E_L_override
-        return 0.5 * E_L * (self.phi ** 2) - self.params.E_J_GHz * np.cos(self.phi - phi_ext)
+        # Dérivée première centrée.
+        # La matrice est antisymétrique réelle.
+        D1 = np.zeros((N, N), dtype=np.float64)
+        D1[idx[:-1], idx[1:]] = 1.0
+        D1[idx[1:], idx[:-1]] = -1.0
+        D1 /= 2.0 * h
 
-    def solve(self, phi_ext: float = np.pi, n_g: float = 0.0) -> Dict[str, np.ndarray]:
-        E_C = self.params.E_C_GHz
+        self.D1 = D1
+        self.D2 = D2
+        self.n_op = -1j * D1
+
+        if not np.allclose(
+            self.n_op,
+            self.n_op.conj().T,
+            atol=1e-12,
+            rtol=0.0,
+        ):
+            raise RuntimeError("L'opérateur n n'est pas hermitien.")
+
+        if not np.allclose(
+            self.D2,
+            self.D2.T,
+            atol=1e-12,
+            rtol=0.0,
+        ):
+            raise RuntimeError("Le Laplacien n'est pas symétrique.")
+
+    def potential(
+        self,
+        phi_ext: float,
+        E_L_override: Optional[float] = None,
+    ) -> np.ndarray:
+        if not math.isfinite(float(phi_ext)):
+            raise ValueError("phi_ext doit être fini.")
+
+        EL = (
+            self.params.E_L_GHz
+            if E_L_override is None
+            else float(E_L_override)
+        )
+
+        if not math.isfinite(EL) or EL <= 0.0:
+            raise ValueError("E_L_override doit être positif.")
+
+        return (
+            0.5 * EL * (self.phi - phi_ext) ** 2
+            - self.params.E_J_GHz * np.cos(self.phi)
+        )
+
+    def solve(
+        self,
+        phi_ext: float = np.pi,
+        n_g: float = 0.0,
+    ) -> Dict[str, np.ndarray]:
+        """
+        Résout le problème spectral.
+
+        n_g non nul n'est pas activé dans cette discrétisation :
+        sa prise en charge exige un traitement cohérent de la
+        condition de jauge et des conditions aux limites.
+        """
+        if abs(float(n_g)) > 1e-14:
+            raise NotImplementedError(
+                "n_g non nul n'est pas pris en charge par cette "
+                "discrétisation à conditions de Dirichlet."
+            )
+
+        EC = self.params.E_C_GHz
         V = self.potential(phi_ext)
 
-        if abs(n_g) < 1e-14:
-            H = -4.0 * E_C * self.D2 + np.diag(V)
-        else:
-            n_shift = self.n_op - n_g * np.eye(self.n_grid, dtype=np.complex128)
-            H = 4.0 * E_C * (n_shift @ n_shift) + np.diag(V.astype(np.complex128))
+        H = -4.0 * EC * self.D2 + np.diag(V)
 
-        eigvals, eigvecs = eigh(H, subset_by_index=[0, self.n_states - 1])
+        # Contrôle de l'hermiticité avant diagonalisation.
+        if not np.allclose(H, H.T, atol=1e-11, rtol=0.0):
+            raise RuntimeError("Hamiltonien non symétrique.")
+
+        energies, states = eigh(
+            H,
+            subset_by_index=[0, self.n_states - 1],
+            check_finite=True,
+        )
+
+        # Normalisation intégrale : ∫ |psi|² dphi = 1.
         for k in range(self.n_states):
-            norm = np.sqrt(np.sum(np.abs(eigvecs[:, k]) ** 2) * self.dphi)
-            eigvecs[:, k] /= norm
-            idx_max = np.argmax(np.abs(eigvecs[:, k]))
-            eigvecs[:, k] /= eigvecs[idx_max, k] / np.abs(eigvecs[idx_max, k])
+            norm = math.sqrt(
+                float(np.sum(np.abs(states[:, k]) ** 2) * self.dphi)
+            )
+
+            if norm <= 0.0 or not math.isfinite(norm):
+                raise RuntimeError(f"État propre {k} mal normalisé.")
+
+            states[:, k] /= norm
+
+            # Fixe la phase globale pour stabiliser les comparaisons.
+            idx_max = int(np.argmax(np.abs(states[:, k])))
+            amplitude = states[idx_max, k]
+
+            if abs(amplitude) > 0.0:
+                states[:, k] *= np.exp(-1j * np.angle(amplitude))
 
         return {
-            "energies": np.real(eigvals),
-            "states": eigvecs,
+            "energies": np.asarray(energies, dtype=float),
+            "states": states,
             "potential": V,
-            "phi": self.phi
+            "phi": self.phi.copy(),
         }
 
-    def compute_matrix_elements(self, states: np.ndarray) -> Dict[str, np.ndarray]:
+    def compute_matrix_elements(
+        self,
+        states: np.ndarray,
+    ) -> Dict[str, np.ndarray]:
+        states = np.asarray(states, dtype=np.complex128)
+
+        if states.ndim != 2 or states.shape[0] != self.n_grid:
+            raise ValueError("Dimension des états incompatible avec la grille.")
+
         k = states.shape[1]
         phi_mat = np.zeros((k, k), dtype=np.complex128)
         n_mat = np.zeros((k, k), dtype=np.complex128)
 
+        phi_diag = np.diag(self.phi)
+
         for i in range(k):
-            bra = np.conj(states[:, i]) * self.dphi
+            bra = states[:, i].conj()
             for j in range(k):
                 ket = states[:, j]
-                phi_mat[i, j] = np.sum(bra * (self.phi * ket))
-                n_mat[i, j] = np.sum(bra * (self.n_op @ ket))
 
-        return {"phi": phi_mat, "n": n_mat}
+                phi_mat[i, j] = (
+                    np.vdot(states[:, i], phi_diag @ ket)
+                    * self.dphi
+                )
+                n_mat[i, j] = (
+                    np.vdot(states[:, i], self.n_op @ ket)
+                    * self.dphi
+                )
 
-    def sweep_flux(self, n_points: int = 121) -> Dict[str, np.ndarray]:
-        flux_grid = np.linspace(0.0, 2.0 * np.pi, n_points)
+        return {
+            "phi": phi_mat,
+            "n": n_mat,
+        }
+
+    def sweep_flux(
+        self,
+        n_points: int = 121,
+        flux_min: float = 0.0,
+        flux_max: float = 2.0 * np.pi,
+    ) -> Dict[str, np.ndarray]:
+        if n_points < 3:
+            raise ValueError("n_points doit être supérieur ou égal à 3.")
+        if flux_max <= flux_min:
+            raise ValueError("flux_max doit dépasser flux_min.")
+
+        flux_grid = np.linspace(flux_min, flux_max, n_points)
         energies_all = np.zeros((n_points, self.n_states))
         phi_01 = np.zeros(n_points)
 
-        for idx, f_ext in enumerate(flux_grid):
-            res = self.solve(phi_ext=f_ext)
-            energies_all[idx, :] = res["energies"]
-            mats = self.compute_matrix_elements(res["states"])
-            phi_01[idx] = np.abs(mats["phi"][0, 1])
+        for idx, flux in enumerate(flux_grid):
+            result = self.solve(phi_ext=float(flux))
+            energies_all[idx] = result["energies"]
+
+            mats = self.compute_matrix_elements(result["states"])
+            phi_01[idx] = abs(mats["phi"][0, 1])
 
         f01 = energies_all[:, 1] - energies_all[:, 0]
         f12 = energies_all[:, 2] - energies_all[:, 1]
-        df01 = np.gradient(f01, flux_grid)
-        d2f01 = np.gradient(df01, flux_grid)
+
+        df01 = np.gradient(f01, flux_grid, edge_order=2)
+        d2f01 = np.gradient(df01, flux_grid, edge_order=2)
 
         return {
             "flux": flux_grid,
@@ -158,48 +316,47 @@ class FluxoniumHamiltonianSolver:
             "f01": f01,
             "f12": f12,
             "alpha": f12 - f01,
-            "df01_dphi": df01,
-            "d2f01_dphi2": d2f01,
-            "phi_01": phi_01
+            "df01_dphi_ext": df01,
+            "d2f01_dphi_ext2": d2f01,
+            "phi_01": phi_01,
         }
 
 
 class DecoherenceAnalyzer:
-    """Calcul des taux de relaxation (T1) et de déphasage pur (T_phi)."""
+    """
+    Gestion des temps de cohérence fournis par un modèle externe.
 
-    def __init__(self, params: FluxoniumHardwareParams):
-        self.params = params
+    Le Hamiltonien statique ne suffit pas à déterminer T1 ou T_phi.
+    Cette classe ne fabrique donc pas de taux de relaxation.
+    """
 
-    def _coth_thermal(self, freq_GHz: float) -> float:
-        f_Hz = max(abs(freq_GHz) * 1e9, 1e6)
-        T_K = max(self.params.temperature_mK * 1e-3, 1e-3)
-        x = (CONST.h * f_Hz) / (2.0 * CONST.k_B * T_K)
-        return 1.0 if x > 50.0 else 1.0 / math.tanh(x)
+    @staticmethod
+    def validate_coherence_times(
+        T1_s: float,
+        T_phi_s: float,
+    ) -> Dict[str, float]:
+        T1_s = float(T1_s)
+        T_phi_s = float(T_phi_s)
 
-    def relaxation_rates(self, f01_GHz: float, phi_01: float) -> Dict[str, float]:
-        omega_01 = 2.0 * np.pi * max(f01_GHz, 0.01) * 1e9
-        E_L_J = self.params.E_L_GHz * 1e9 * CONST.h
-        E_C_J = self.params.E_C_GHz * 1e9 * CONST.h
-        coth_th = self._coth_thermal(f01_GHz)
+        if not math.isfinite(T1_s) or T1_s <= 0.0:
+            raise ValueError("T1_s doit être fini et strictement positif.")
 
-        gamma_cap = (CONST.hbar * (omega_01 ** 2)) / (4.0 * E_C_J * self.params.Q_cap) * (phi_01 ** 2) * coth_th
-        gamma_ind = (E_L_J / (CONST.hbar * self.params.Q_ind)) * (phi_01 ** 2) * coth_th
-        gamma_qp = self.params.x_qp * (16.0 * self.params.E_J_GHz * 1e9 / np.pi) * math.sqrt(88.0 / max(f01_GHz, 0.05)) * (phi_01 ** 2) * 0.25
+        if math.isnan(T_phi_s) or T_phi_s <= 0.0:
+            raise ValueError("T_phi_s doit être positif.")
 
-        gamma_tot = gamma_cap + gamma_ind + gamma_qp
+        gamma_1 = 1.0 / T1_s
+        gamma_phi = (
+            0.0 if math.isinf(T_phi_s) else 1.0 / T_phi_s
+        )
+
+        gamma_2 = 0.5 * gamma_1 + gamma_phi
+        T2_s = 1.0 / gamma_2
+
         return {
-            "gamma_cap_Hz": gamma_cap,
-            "gamma_ind_Hz": gamma_ind,
-            "gamma_qp_Hz": gamma_qp,
-            "gamma_total_Hz": gamma_tot,
-            "T1_us": (1.0 / max(gamma_tot, 1.0)) * 1e6
-        }
-
-    def dephasing_rate(self, df01: float, d2f01: float) -> Dict[str, float]:
-        A_rad = (self.params.A_flux_uPhi0 * 1e-6) * (2.0 * np.pi)
-        D1_Hz, D2_Hz = abs(df01) * 1e9, abs(d2f01) * 1e9
-        gamma_phi = 2.0 * np.pi * D1_Hz * A_rad * math.sqrt(3.5) + np.pi * D2_Hz * (A_rad ** 2) * 3.5
-        return {
-            "gamma_phi_Hz": gamma_phi,
-            "T_phi_us": (1.0 / max(gamma_phi, 1.0)) * 1e6
+            "T1_s": T1_s,
+            "T_phi_s": T_phi_s,
+            "T2_s": T2_s,
+            "gamma_1_s": gamma_1,
+            "gamma_phi_s": gamma_phi,
+            "gamma_2_s": gamma_2,
         }
