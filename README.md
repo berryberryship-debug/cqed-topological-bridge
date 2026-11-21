@@ -32,7 +32,7 @@ Le simulateur bosonique Kerr-Cat constitue une branche complémentaire du projet
 
 ---
 
-1. Statut scientifique et périmètre épistémique
+# 1. Statut scientifique et périmètre épistémique
 
 Ce dépôt implémente un pipeline de modélisation numérique multi-échelle. Il ne constitue ni une démonstration expérimentale, ni une dérivation physique complète de bout en bout.
 
