@@ -599,7 +599,7 @@ Elle ne constitue pas, à elle seule :
 - un canal de bruit ;
 - un couplage physique entre qubits.
 
-12.1 Calcul par différence finie
+## 12.1 Calcul par différence finie
 
 Une estimation locale peut utiliser une quantité de la forme :
 
