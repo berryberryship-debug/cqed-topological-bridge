@@ -1,4 +1,4 @@
-Quantum-Lab — Fluxonium–Lattice Surgery Bridge
+## Quantum-Lab — Fluxonium–Lattice Surgery Bridge
 
 Pipeline multi-échelle : Fluxonium, bruit quantique, QEC biaisée, Kerr-Cat et chirurgie de réseau — prototype de code de surface tourné (d=3), 21 qubits
 
