@@ -1,609 +1,282 @@
 # Quantum-Lab — Fluxonium–Lattice Surgery Bridge
 
-## Pipeline multi-échelle : Fluxonium, bruit quantique, QEC biaisée, Kerr-Cat et chirurgie de réseau — prototype de code de surface tourné (d=3), 21 qubits
+## Pipeline multi-échelle : Fluxonium, bruit quantique, QEC biaisée, Kerr-Cat et chirurgie de réseau
 
-## Quantum-Lab est un environnement de modélisation numérique consacré à l'étude des interfaces entre les circuits supraconducteurs, la géométrie quantique des états, les canaux de bruit et la correction d'erreurs quantique.
+## Quantum-Lab est un environnement de modélisation numérique consacré à l’étude des interfaces entre les circuits supraconducteurs, la géométrie quantique des états, les canaux de bruit et la correction d’erreurs quantique.
 
 ## Le projet relie plusieurs niveaux de description :
 
-Substrat et quasiparticules
-          │
-          ▼
-Fluxonium
-T1 · T_phi · df01/dPhi · QGT · g_FS
-          │
-          ▼
-Canaux de bruit
-Amplitude damping + déphasage pur
-          │
-          ▼
-Pauli twirling / PTM
-pX · pY · pZ
-          │
-          ▼
-Correction d'erreurs quantique
-Bruit biaisé · budget logique · décodage
-          │
-          ▼
-Chirurgie de réseau
-Prototype de code de surface tourné d=3 · 21 qubits
+SUBSTRAT
+   │
+   ├── modulation paramétrique du flux
+   └── densité effective de quasiparticules
+             │
+             ▼
+FLUXONIUM
+   │
+   ├── Hamiltonien
+   ├── spectre et états propres
+   ├── T1 · Tφ
+   ├── df01/dΦ
+   └── QGT · gFS
+             │
+       ┌─────┴─────┐
+       ▼           ▼
+   GÉOMÉTRIE     BRUIT
+   QUANTIQUE       │
+       │            ├── amplitude damping
+       │            ├── déphasage pur
+       │            └── PTM
+       │                 │
+       │                 ▼
+       │            PAULI TWIRLING
+       │            pX · pY · pZ
+       │                 │
+       └────── ? ───────┘
+                     │
+                     ▼
+                 QEC
+                     │
+                     ├── répétition de phase
+                     ├── budget d’erreur
+                     ├── décodage pondéré
+                     └── chirurgie de réseau
 
-Le simulateur bosonique Kerr-Cat constitue une branche complémentaire du projet. Il possède sa propre dynamique et n'est pas encore intégré à une simulation couplée Fluxonium–Kerr-Cat.
+Le simulateur bosonique Kerr-Cat constitue une branche complémentaire. Il possède sa propre dynamique et n’est pas actuellement intégré à une simulation couplée Fluxonium–Kerr-Cat.
 
 ---
 
 # 1. Statut scientifique et périmètre épistémique
 
-Ce dépôt implémente un pipeline de modélisation numérique multi-échelle. Il ne constitue ni une démonstration expérimentale, ni une dérivation physique complète de bout en bout.
+Quantum-Lab implémente un pipeline de modélisation numérique multi-échelle.
+
+Le dépôt ne constitue ni une démonstration expérimentale, ni une dérivation physique complète de bout en bout, ni une validation d’une architecture matérielle réelle.
 
 Le projet distingue explicitement :
 
-- les quantités calculées à partir d'un modèle physique ;
+- les quantités calculées à partir d’un modèle physique ;
 - les paramètres phénoménologiques ;
 - les approximations de réduction ;
 - les modèles numériques effectifs ;
-- les prototypes de correction d'erreurs ;
-- les éléments qui ne sont pas validés expérimentalement.
+- les prototypes de correction d’erreurs ;
+- les hypothèses encore ouvertes ;
+- les éléments non validés expérimentalement.
 
-Il faut distinguer cinq niveaux de preuve :
+## 1.1 Niveaux de preuve
 
 Niveau| Signification
-Modèle analytique| Relation définie à partir d'hypothèses physiques ou mathématiques
+Modèle analytique| Relation définie à partir d’hypothèses physiques ou mathématiques
 Calcul numérique| Résultat produit par une méthode de calcul déterminée
-Validation numérique| Vérification d'invariants, de convergence ou comparaison à une référence
+Validation numérique| Vérification d’invariants, de convergence ou comparaison à une référence
 Prédiction expérimentale| Résultat quantitatif confronté à des mesures matérielles
 Validation expérimentale| Reproduction indépendante et vérification sur dispositif réel
 
-Une validation numérique locale ne constitue pas automatiquement une validation de toute la chaîne.
+Une validation numérique locale ne constitue pas automatiquement une validation de l’ensemble de la chaîne.
 
-Le pipeline est conçu pour étudier la cohérence d'une architecture de modélisation, pas pour affirmer qu'une architecture matérielle fonctionnera telle quelle.
+Le pipeline est conçu pour étudier la cohérence d’une architecture de modélisation et les interfaces entre niveaux de description.
 
-## 1.1 Fonctionnalités présentes dans le périmètre documentaire
+---
 
-Les modules du projet sont documentés comme couvrant les domaines suivants :
+# 2. Périmètre fonctionnel
 
-Fluxonium
+## 2.1 Fluxonium
 
-- construction de l'Hamiltonien en base de phase ;
+Le projet comprend les éléments suivants :
+
+- construction de l’Hamiltonien Fluxonium en base de phase ;
 - diagonalisation numérique du spectre ;
-- calcul des niveaux d'énergie et des états propres ;
+- calcul des niveaux d’énergie ;
+- calcul des états propres ;
 - calcul des fréquences de transition ;
-- éléments de matrice de charge et de phase ;
-- estimations des temps de relaxation et de déphasage ;
-- sensibilité fréquentielle au flux.
+- calcul d’éléments de matrice de charge et de phase ;
+- estimation de quantités de cohérence à partir de paramètres fournis ;
+- calcul de la sensibilité fréquentielle au flux ;
+- calcul de quantités géométriques associées aux états propres.
 
-Géométrie quantique
+## 2.2 Géométrie quantique
 
-- quantum geometric tensor (QGT) ;
-- métrique de Fubini–Study (g_{FS}) ;
-- calcul de sensibilité géométrique des états propres.
+Le projet explore :
 
-Substrat et quasiparticules
+- le quantum geometric tensor (QGT) ;
+- la métrique de Fubini–Study ;
+- la sensibilité géométrique des états propres ;
+- les variations de cette métrique avec le paramètre de flux.
 
-- modulation spatiale paramétrique du flux ;
-- modèle effectif de densité de quasiparticules (x_{qp}) ;
-- bilan numérique de production et de pertes ;
-- contribution des quasiparticules froides de la petite jonction Josephson.
+La géométrie quantique est ici utilisée comme niveau descriptif supplémentaire.
 
-Canaux de bruit
+Elle ne constitue pas, en elle-même, un modèle de dissipation.
+
+## 2.3 Substrat et quasiparticules
+
+Le modèle comprend :
+
+- une modulation spatiale paramétrique du flux ;
+- un modèle effectif de densité de quasiparticules x_{qp} ;
+- un bilan numérique de production et de pertes ;
+- une contribution effective des quasiparticules froides de la petite jonction Josephson.
+
+Ce modèle ne constitue pas une simulation microscopique complète de la dynamique des quasiparticules.
+
+## 2.4 Canaux de bruit
+
+Le projet comprend :
 
 - amplitude damping ;
 - déphasage pur ;
-- matrice de transfert de Pauli (PTM) ;
+- représentation en matrice de transfert de Pauli (PTM) ;
 - Pauli twirling ;
-- probabilités effectives (p_X,p_Y,p_Z).
+- conversion en probabilités effectives p_X,p_Y,p_Z ;
+- composition de canaux diagonaux dans la représentation PTM.
 
-Correction d'erreurs quantique
+## 2.5 Correction d’erreurs quantique
 
-- codes de répétition de phase ;
+Le périmètre comprend :
+
+- code de répétition de phase ;
 - modèle de bruit biaisé ;
-- budget d'erreur logique ;
-- décodage pondéré par des paramètres locaux ;
-- prototype de chirurgie de réseau sur code de surface tourné, distance (d=3).
+- budget d’erreur logique ;
+- probabilités locales d’erreur ;
+- prototype de décodage pondéré ;
+- prototype de chirurgie de réseau.
 
-Qubit bosonique
+La chirurgie de réseau est traitée comme un prototype numérique, et non comme une implémentation complète d’un protocole de surface code au niveau des stabilisateurs et des circuits physiques.
 
-- modèle Kerr-Cat ;
+## 2.6 Kerr-Cat
+
+Le projet contient une branche indépendante consacrée au qubit bosonique Kerr-Cat :
+
+- Hamiltonien effectif de Kerr ;
 - pompage à deux photons ;
 - équation maîtresse de Lindblad ;
 - intégration numérique ;
-- estimations de fidélité logique et de leakage.
+- estimation de fidélité ;
+- estimation du leakage.
 
-La présence d'une fonctionnalité dans cette liste ne signifie pas qu'elle a été validée expérimentalement.
+Cette branche n’est pas actuellement couplée au moteur Fluxonium dans une simulation physique commune.
 
 ---
 
-## 1.2 Éléments non implémentés ou non établis
+# 3. Éléments non implémentés ou non établis
 
-Les éléments suivants ne doivent pas être présentés comme des fonctionnalités achevées sans vérification du code correspondant :
+Les éléments suivants ne doivent pas être présentés comme des fonctionnalités achevées sans vérification indépendante du code correspondant :
 
 - contrôle DRAG ;
+- calibration physique complète d’impulsions ;
 - fonction de Wigner ;
 - dynamique microscopique complète des quasiparticules ;
-- diffusion et piégeage microscopiques des quasiparticules ;
+- diffusion microscopique des quasiparticules ;
+- piégeage microscopique ;
+- recombinaison microscopique complète ;
 - quasiparticules dans le réseau inductif ;
 - asymétrie de gap supraconducteur ;
-- couplage physique complet entre quatre Fluxonium ;
-- chirurgie de réseau complète au niveau des stabilisateurs et des circuits ;
+- couplage physique complet entre plusieurs Fluxonium ;
+- simulation complète de chirurgie de réseau au niveau stabilisateur/circuit ;
 - validation expérimentale intégrée ;
-- démonstration d'un seuil de correction d'erreurs.
+- démonstration d’un seuil de correction d’erreurs.
 
-Les éléments ci-dessus constituent soit des extensions prévues, soit des limites actuelles du périmètre scientifique.
+La présence d’un fichier ou d’une API ne suffit pas à établir qu’une fonctionnalité est opérationnelle.
+
+Une fonctionnalité est considérée comme opérationnelle uniquement après vérification de son implémentation et, lorsque pertinent, exécution des tests correspondants.
 
 ---
 
-## 1.3 Paramètres et réductions phénoménologiques
+# 4. Paramètres phénoménologiques et interfaces ouvertes
 
-Les éléments suivants nécessitent une qualification particulière :
+Plusieurs paramètres constituent des réductions entre niveaux physiques.
 
-- le couplage géométrique "fs_coupling_gamma" ;
-- la réduction du Fluxonium à un sous-espace de deux niveaux ;
-- la conversion des taux continus en probabilités de Pauli par cycle ;
-- le traitement du bruit quasi statique par un canal effectif ;
-- le couplage (XX) entre qubits lorsqu'il est fourni comme paramètre d'entrée ;
-- les paramètres de modulation spatiale du substrat ;
-- toute relation postulée entre une métrique géométrique et une probabilité d'erreur.
+Ils doivent être documentés avec :
 
-Ces paramètres doivent être documentés avec :
-
+- leur définition ;
 - leurs unités ;
 - leur domaine de validité ;
-- leur convention ;
+- leur origine ;
 - leur méthode de calibration ;
-- leur statut théorique, numérique ou phénoménologique.
+- leur statut physique ou phénoménologique.
 
-En particulier, aucune relation directe
+Les principaux paramètres concernés sont :
 
-[
-g_{FS}\rightarrow p_{\mathrm{erreur}}
-]
+- "fs_coupling_gamma" ;
+- les paramètres de réduction à deux niveaux ;
+- la conversion des taux continus en probabilités de Pauli par cycle ;
+- les modèles effectifs de bruit quasi statique ;
+- les paramètres de couplage XX ;
+- les paramètres de modulation spatiale du substrat ;
+- les paramètres de densité effective de quasiparticules ;
+- toute relation postulée entre géométrie quantique et probabilité d’erreur.
 
-ne doit être considérée comme établie sans modèle physique intermédiaire et validation indépendante.
-
----
-
-## 1.4 Audit scientifique : corrections et points ouverts
-
-Cette section consolide les incohérences documentaires identifiées entre les différentes descriptions du projet.
-
-Le principe retenu est de privilégier la formulation prudente tant que l'implémentation réelle n'a pas été vérifiée.
-
-## A. Cohérence documentaire
-
-Les affirmations suivantes doivent être considérées comme des points à vérifier dans le code avant publication définitive :
-
-Point| Affirmation à éviter sans vérification| Formulation retenue
-DRAG / "pulse_calibration"| « Implémenté »| Non établi sans vérification
-Fonction de Wigner| « Présente »| Non établie sans vérification
-Tolérance du bilan| (r\leq10^{-15})| (r\leq10^{-10}) dans le périmètre documentaire
-Chirurgie de réseau| « Protocole complet »| Prototype numérique / Monte-Carlo
-Kerr-Cat| « Couplé »| Branche indépendante
-Dérivées en phase| Ordre 4 ou Fock (N=35)| Stencil central avec conditions de Dirichlet, selon le solveur documenté
-
-Les versions documentaires contradictoires doivent être supprimées ou harmonisées après vérification du dépôt.
+L’existence d’une relation numérique entre deux quantités ne suffit pas à établir qu’elle constitue une relation physique.
 
 ---
 
-## B. Correction du Pauli twirling de l'amplitude damping
+# 5. Architecture du pipeline
 
-Pour un canal d'amplitude damping de paramètre
+## 5.1 Vue générale
 
-[
-\gamma=1-e^{-\tau/T_1},
-]
-
-la représentation PTM possède les valeurs propres :
-
-[
-\lambda_X=\lambda_Y=\sqrt{1-\gamma},
-]
-
-[
-\lambda_Z=1-\gamma.
-]
-
-Après Pauli twirling, les probabilités sont :
-
-[
-p_X=p_Y=\frac{\gamma}{4},
-]
-
-[
-p_Z=
-\frac{2-\gamma-2\sqrt{1-\gamma}}{4},
-]
-
-et
-
-[
-p_I=
-\frac{2-\gamma+2\sqrt{1-\gamma}}{4}.
-]
-
-Elles vérifient :
-
-[
-p_I+p_X+p_Y+p_Z=1.
-]
-
-Pour (\gamma\ll1) :
-
-[
-p_X=p_Y\simeq\frac{\gamma}{4},
-]
-
-[
-p_Z\simeq\frac{\gamma^2}{16}.
-]
-
-Ainsi, la relation
-
-[
-p_Z=\frac{\gamma}{2}
-]
-
-est incorrecte pour ce twirling, tout comme
-
-[
-p_I=1-\gamma.
-]
-
-L'amplitude damping initial n'est pas lui-même un canal de Pauli. Le twirling constitue une réduction du canal à une représentation diagonale de Pauli.
-
-Référence principale :
-
-- J. Ghosh, A. G. Fowler, M. R. Geller, 2012, Surface code with decoherence: An analysis of three superconducting architectures, Physical Review A 86, 062318. DOI : 10.1103/PhysRevA.86.062318.
-
-Test numérique requis
-
-Pour
-
-[
-\gamma\in
-{10^{-4},10^{-2},0.3,0.9},
-]
-
-le test doit comparer les probabilités calculées aux expressions analytiques ci-dessus et vérifier :
-
-[
-\left|
-p_I+p_X+p_Y+p_Z-1
-\right|
-]
-
-à une tolérance numérique explicitement documentée.
-
----
-
-C. Bilan de quasiparticules : portée du test
-
-Si le résidu
-
-[
-R_{qp}
-
-x_{qp}(t+\Delta t)
--x_{qp}(t)
--P
-+L
-]
-
-est calculé après avoir défini (x_{qp}(t+\Delta t)) par exactement la même équation de bilan, alors :
-
-[
-R_{qp}=0
-]
-
-est essentiellement une conséquence de la construction numérique.
-
-Ce test vérifie alors principalement l'arithmétique du bilan et non la validité physique de la dynamique.
-
-Il faut donc distinguer :
-
-1. fermeture algébrique du bilan ;
-2. exactitude de l'intégrateur ;
-3. validité du modèle physique.
-
-Une validation indépendante devrait comparer le modèle à :
-
-- une solution analytique d'un cas simple ;
-- ou un intégrateur de référence indépendant ;
-- ou une solution numérique obtenue avec une méthode et un pas différents.
-
-La tolérance (10^{-15}) ne doit pas être présentée comme une précision physique. En précision flottante IEEE 754 double, l'epsilon machine est d'environ
-
-[
-2.22\times10^{-16},
-]
-
-et les erreurs d'arrondi, de conditionnement et d'accumulation rendent une tolérance de l'ordre de (10^{-15}) potentiellement excessive sur une intégration longue.
-
-La tolérance actuellement retenue dans le périmètre documentaire est donc :
-
-[
-|R_{qp}|\leq10^{-10},
-]
-
-sauf justification numérique spécifique.
-
----
-
-D. Comptage des qubits dans la chirurgie 21Q
-
-Le terme « 21 qubits » doit être défini explicitement.
-
-Un patch de code de surface tourné de distance (d=3) est généralement décrit avec :
-
-[
-9\ \text{qubits de données}
-+
-8\ \text{qubits ancillas}
-
-17\ \text{qubits}.
-]
-
-Le comptage de 21 qubits ne peut donc pas être présenté simplement comme :
-
-[
-2\times9+3=21
-]
-
-sans préciser que les 8 ancillas de syndrome de chaque patch ne sont pas représentées dans ce comptage.
-
-Le prototype doit donc préciser ce que représentent les 21 qubits :
-
-- qubits physiques effectivement simulés ;
-- qubits de données ;
-- ancillas d'interface ;
-- ancillas sélectionnées ;
-- ou abstraction réduite de la chirurgie.
-
-La référence de Horsman et al. est pertinente pour le protocole de lattice surgery, mais ne doit pas être utilisée comme justification directe du comptage spécifique de 21 qubits.
-
-Référence :
-
-- D. Horsman, A. G. Fowler, S. J. Devitt, R. Van Meter, 2012, Surface code quantum computing by lattice surgery, New Journal of Physics 14, 123011. DOI : 10.1088/1367-2630/14/12/123011.
-
----
-
-E. Conventions à unifier
-
-Hamiltonien
-
-La convention retenue est :
-
-[
-H=
-4E_C\hat n^2
-+
-\frac{E_L}{2}
-(\hat\phi-\phi_{\mathrm{ext}})^2
-
-E_J\cos(\hat\phi).
-]
-
-avec :
-
-[
-[\hat\phi,\hat n]=i.
-]
-
-et
-
-[
-\hat n=-i\frac{\partial}{\partial\phi}.
-]
-
-Le signe du terme Josephson doit rester identique dans l'ensemble du projet.
-
-Toute convention alternative doit être accompagnée d'une transformation explicite des variables.
-
-Métrique de Fubini–Study
-
-Pour un état pur normalisé :
-
-[
-|\psi(\Phi)\rangle,
-]
-
-une estimation par différence finie peut utiliser :
-
-[
-g_{\Phi\Phi}^{FS}
-\simeq
-\frac{
-1-
-|\langle\psi(\Phi)|\psi(\Phi+\delta\Phi)\rangle|^2
-}
-{\delta\Phi^2}.
-]
-
-Le README doit préciser :
-
-- l'état utilisé ;
-- le paramètre varié ;
-- le pas (\delta\Phi) ;
-- la convention d'unité de flux ;
-- la méthode de convergence.
-
-Quasiparticules
-
-Le préfacteur du taux de quasiparticules doit être confronté à la formulation exacte de la littérature et aux conventions utilisées pour (x_{qp}), (E_J), (\Delta), (f_{01}) et les éléments de matrice.
-
-Référence principale :
-
-- I. M. Pop et al., 2014, Coherent suppression of electromagnetic dissipation due to superconducting quasiparticles, Nature 508, 369–372.
-
-Kerr-Cat
-
-Référence principale pour le contexte Kerr + pompage à deux photons :
-
-- S. Puri, S. Boutin, A. Blais, 2017, Engineering the quantum states of light in a Kerr-nonlinear resonator by two-photon driving, npj Quantum Information 3, 18.
-
----
-
-F. Hygiène du dépôt
-
-Les noms de fichiers devraient suivre une convention Python stable :
-
-- minuscules ;
-- underscores ;
-- pas d'espaces ;
-- pas de versions dans les noms de fichiers.
-
-Par exemple :
-
-NOYAU QUANTIQUE V52.py
-
-devrait devenir un nom du type :
-
-noyau_quantique.py
-
-Les versions doivent être gérées par Git, les tags, les releases ou les métadonnées du projet plutôt que par les noms des modules.
-
-L'arborescence documentée doit également rester synchronisée avec le dépôt réel :
-
-test/
-tests/
-notebooks/
-results/
-run_pipeline.py
-
-ne doivent être documentés que s'ils existent effectivement dans le commit concerné.
-
-Une CI GitHub Actions devrait exécuter au minimum :
-
-python -m pytest -q
-
-dans un environnement propre.
-
----
-
-G. Références scientifiques principales
-
-Sujet| Référence| Statut
-Amplitude damping / Pauli twirling| Ghosh, Fowler, Geller (2012), PRA 86, 062318| Référence identifiée
-Lattice surgery| Horsman et al. (2012), NJP 14, 123011| Référence identifiée
-Quasiparticules / dissipation| Pop et al. (2014), Nature 508, 369–372| Référence identifiée
-Kerr-Cat| Puri, Boutin, Blais (2017), npj QI 3, 18| Référence identifiée
-
-Ces références soutiennent les cadres théoriques correspondants. Elles ne valident pas automatiquement les implémentations numériques particulières de Quantum-Lab.
-
----
-
-H. Interface de recherche
-
-L'interface :
-
-[
-g_{FS}
-\quad ? \quad
-\text{canal de bruit}
-]
-
-reste une question de recherche.
-
-Le calcul de (g_{FS}) fournit une information géométrique sur la variation d'un état quantique par rapport à un paramètre.
-
-Il ne fournit pas directement :
-
-[
-T_1,
-\qquad
-T_\phi,
-\qquad
-\Gamma,
-\qquad
-p_X,
-\qquad
-p_Y,
-\qquad
-p_Z.
-]
-
-Une chaîne physique plus complète devrait introduire explicitement les intermédiaires pertinents, par exemple :
-
-[
-g_{FS}
-\rightarrow
-\text{susceptibilité ou observable couplée}
-\rightarrow
-S_\Phi(\omega)
-\rightarrow
-\Gamma_\phi
-\rightarrow
-p_Z.
-]
-
-Tant qu'une telle relation n'est pas définie, dérivée et confrontée à une référence indépendante, "fs_coupling_gamma" reste un paramètre phénoménologique.
-
-Toute relation entre géométrie quantique et erreur doit donc être présentée comme une hypothèse de travail lorsqu'elle n'est pas établie par le modèle.
-
----
-
-# 2. Architecture du pipeline
-
-## 2.1 Vue d'ensemble
-
-L'architecture générale suit une succession de transformations entre niveaux de description :
+La chaîne principale suit une succession de transformations :
 
 SUBSTRAT
    │
-   ├── Modulation spatiale du flux
-   └── Densité effective de quasiparticules
-              │
-              ▼
+   ├── ΔΦ spatial
+   └── xqp effectif
+          │
+          ▼
 FLUXONIUM
    │
-   ├── Hamiltonien H
-   ├── Spectre et états propres
-   ├── T1 et T_phi
-   ├── df01/dPhi
-   └── QGT et g_FS
-              │
-       ┌──────┴────────┐
-       ▼               ▼
-GÉOMÉTRIE          BRUIT
-QUANTIQUE           │
-       │            ├── Amplitude damping
-       │            ├── Déphasage pur
-       │            └── PTM
-       │                  │
-       │                  ▼
-       │             PAULI TWIRLING
-       │             pX · pY · pZ
-       │                  │
-       └────── ? ─────────┘
-                          │
-                          ▼
-                   MODÈLES QEC
-                          │
-                          ├── Répétition de phase
-                          ├── Budget logique
-                          ├── Décodage
-                          └── Chirurgie 21Q
+   ├── H(Φext)
+   ├── spectre
+   ├── états propres
+   ├── T1 · Tφ
+   ├── df01/dΦ
+   └── QGT · gFS
+          │
+      ┌───┴────┐
+      ▼        ▼
+ GÉOMÉTRIE   BRUIT
+ QUANTIQUE     │
+                ├── amplitude damping
+                ├── déphasage
+                └── PTM
+                     │
+                     ▼
+                PAULI TWIRLING
+                     │
+                     ├── pX
+                     ├── pY
+                     └── pZ
+                     │
+                     ▼
+                    QEC
+                     │
+                     ├── code de répétition
+                     ├── budget logique
+                     ├── décodage
+                     └── chirurgie
 
-Le point d'interrogation désigne une interface de recherche.
+L’interface :
 
-La géométrie quantique et le modèle de bruit peuvent être calculés séparément. Leur couplage nécessite une relation physique ou phénoménologique explicite.
+gFS  ─────────── ? ─────────── bruit
 
-Le calcul de (g_{FS}) ne suffit pas à déduire une probabilité d'erreur.
+constitue une question de recherche.
+
+Le calcul de g_{FS} ne fournit pas automatiquement une probabilité d’erreur.
+
+Tant qu’aucune relation physique indépendante et testable n’est établie, "fs_coupling_gamma" doit rester qualifié de paramètre phénoménologique.
 
 ---
 
-## 2.2 Modulation spatiale du substrat
+# 6. Modulation spatiale du substrat
 
 Le module "fluxon_engine.py" décrit une modulation spatiale paramétrique du substrat.
 
-Chaque qubit (i) reçoit un décalage de flux :
+Chaque qubit i reçoit un décalage de flux :
 
 [
 \Delta\Phi_i.
 ]
 
-Ce décalage peut être pondéré par une enveloppe spatiale, par exemple gaussienne, centrée autour d'un point doux défini dans la convention du modèle.
+Ce décalage peut être pondéré spatialement par une enveloppe paramétrique autour d’un point de fonctionnement choisi.
 
-La chaîne de calcul locale peut être représentée comme :
+La chaîne locale est :
 
 [
 \Delta\Phi_i
@@ -617,21 +290,26 @@ T_{1,i},T_{\phi,i}
 p_{X,i},p_{Y,i},p_{Z,i}.
 ]
 
-Cette modulation permet d'étudier l'effet d'une inhomogénéité paramétrique sur les propriétés locales des qubits.
+Cette chaîne permet d’étudier l’effet d’une inhomogénéité paramétrique sur les propriétés locales des qubits.
 
-Elle ne constitue pas un modèle de fabrication ni une description complète des variations matérielles d'un dispositif supraconducteur réel.
+Elle ne constitue pas :
+
+- un modèle de fabrication ;
+- une description complète des variations matérielles ;
+- une simulation électromagnétique du dispositif ;
+- une reconstruction microscopique du substrat.
 
 ---
 
-2.3 Noyau dynamique conservatif
+# 7. Noyau de quasiparticules
 
-Le module "fluxon_engine.py" maintient un bilan effectif de densité de quasiparticules hors équilibre :
+Le module "fluxon_engine.py" maintient un modèle effectif de densité de quasiparticules hors équilibre :
 
 [
 x_{qp}.
 ]
 
-Le bilan numérique est formulé sous la forme :
+Le bilan est formulé sous la forme :
 
 [
 x_{qp}(t+\Delta t)
@@ -645,10 +323,10 @@ L(t,\Delta t),
 
 où :
 
-- (P) représente la production effective ;
-- (L) représente les pertes effectives.
+- P représente la production effective ;
+- L représente les pertes effectives.
 
-Le résidu du bilan est :
+Le résidu est :
 
 [
 R_{qp}
@@ -662,33 +340,56 @@ P
 L.
 ]
 
-Une tolérance numérique documentaire est :
+Une tolérance numérique de référence peut être utilisée :
 
 [
 |R_{qp}|\leq10^{-10}.
 ]
 
-Cette tolérance concerne la fermeture numérique du bilan défini par le modèle. Elle ne démontre pas que la dynamique représente quantitativement les quasiparticules d'un circuit réel.
+Cette tolérance doit être interprétée comme une tolérance de fermeture numérique du bilan défini par le modèle.
 
-Le modèle ne comprend notamment pas :
+Elle ne démontre pas l’exactitude physique de la dynamique des quasiparticules.
 
-- la diffusion microscopique ;
-- le piégeage dans les défauts ;
-- la recombinaison microscopique ;
-- les effets de bord ;
-- les quasiparticules dans le réseau inductif ;
-- les asymétries de gap supraconducteur.
+7.1 Portée du test de bilan
+
+Si x_{qp}(t+\Delta t) est calculé directement à partir de :
+
+[
+x_{qp}(t+\Delta t)
+
+x_{qp}(t)+P-L,
+]
+
+alors le résidu est nul par construction, à l’erreur numérique près.
+
+Le test vérifie alors principalement :
+
+- la cohérence arithmétique ;
+- les signes ;
+- la conservation de la convention de bilan ;
+- l’implémentation de l’expression utilisée.
+
+Il ne constitue pas une validation indépendante de la dynamique.
+
+Une validation plus forte doit comparer le modèle à :
+
+- une solution analytique d’un cas simple ;
+- ou un intégrateur indépendant ;
+- ou une formulation numérique de référence.
+
+La tolérance doit également être adaptée à la précision flottante et à la longueur de l’intégration.
 
 ---
 
-# 3. Solveur Hamiltonien Fluxonium
+# 8. Solveur Hamiltonien Fluxonium
 
-## 3.1 Hamiltonien
+## 8.1 Hamiltonien
 
-Le modèle utilise la convention :
+Le Hamiltonien utilisé dans la convention du projet est :
 
 [
-H=
+H
+
 4E_C\hat n^2
 +
 \frac{E_L}{2}
@@ -697,66 +398,89 @@ H=
 E_J\cos(\hat\phi).
 ]
 
-Les opérateurs satisfont :
+Avec :
 
 [
 [\hat\phi,\hat n]=i.
 ]
 
-Dans la représentation de phase :
+Le paramètre de flux réduit est exprimé en radians :
 
 [
-\hat n=-i\frac{\partial}{\partial\phi}.
+\phi_{\mathrm{ext}}
+
+2\pi\frac{\Phi_{\mathrm{ext}}}{\Phi_0}.
 ]
 
-Les conditions aux limites numériques sont de type Dirichlet.
-
-La discrétisation en phase utilise un stencil central.
-
-Les paramètres énergétiques peuvent être exprimés en unités de fréquence, par exemple :
+Les énergies peuvent être exprimées sous forme de fréquences :
 
 [
 E/h
-\quad\text{en GHz}.
 ]
 
-La convention de conversion entre énergie et fréquence doit rester cohérente dans l'ensemble du solveur.
+notamment en GHz.
+
+La convention énergétique doit rester identique dans les différents modules du projet.
+
+## 8.2 Discrétisation
+
+Le solveur travaille en base de phase sur une grille numérique finie.
+
+Les conditions aux limites utilisées par l’implémentation sont de type Dirichlet.
+
+La dérivation numérique repose sur un stencil central.
+
+Cette discrétisation constitue une approximation du problème continu.
+
+En particulier, sur une grille finie :
+
+[
+[\hat\phi,\hat n]=i
+]
+
+ne doit pas être interprété comme une identité numérique exacte à toutes les positions de grille.
+
+La convergence doit donc être contrôlée lorsque :
+
+- la taille de grille varie ;
+- l’étendue du domaine varie ;
+- le nombre d’états retenus varie ;
+- les dérivées numériques varient.
 
 ---
 
-## 3.2 Quantités extraites
+# 9. Quantités extraites du solveur
 
-Le solveur permet d'obtenir, selon les fonctionnalités effectivement présentes dans l'implémentation :
+Le solveur permet notamment d’obtenir :
 
-- les niveaux d'énergie ;
+- les niveaux d’énergie ;
 - les états propres ;
 - les fréquences de transition ;
 - les éléments de matrice ;
-- les dipôles de charge ;
-- les dipôles de phase ;
-- les observables nécessaires aux estimations de relaxation ;
-- les sensibilités fréquentielles ;
+- les éléments de matrice de charge ;
+- les éléments de matrice de phase ;
+- la sensibilité fréquentielle au flux ;
 - les quantités nécessaires au calcul géométrique.
 
-Les taux de relaxation et de déphasage dépendent des hypothèses de bruit et des paramètres physiques introduits.
+Les temps T_1 et T_\phi ne sont pas déduits automatiquement du seul spectre.
 
-Ils ne sont pas des constantes intrinsèques déterminées par le seul spectre.
+Lorsqu’ils sont fournis comme paramètres, le code les traite comme des paramètres de cohérence du modèle.
 
 ---
 
-## 3.3 Convergence numérique
+# 10. Convergence numérique du Fluxonium
 
-La convergence doit être examinée selon plusieurs dimensions :
+La convergence doit être examinée selon plusieurs axes :
 
-- taille de la grille ;
+- taille de grille ;
 - étendue du domaine en phase ;
 - conditions aux limites ;
-- précision des dérivées numériques ;
+- précision des dérivées ;
 - stabilité des états propres ;
 - stabilité des éléments de matrice ;
 - stabilité des fréquences de transition.
 
-Les comparaisons peuvent porter sur :
+Les observables candidates comprennent :
 
 [
 f_{01},
@@ -774,44 +498,23 @@ f_{01},
 \frac{\partial f_{01}}{\partial\Phi},
 ]
 
-et
-
 [
-g_{FS}.
+g_{\Phi\Phi}^{FS}.
 ]
 
-La convergence locale ne garantit pas la convergence globale dans tout l'espace des paramètres.
-
-Une vérification de convergence doit également contrôler l'hermiticité numérique :
+L’hermiticité numérique doit également être contrôlée :
 
 [
 |H-H^\dagger|.
 ]
 
----
-
-# 4. Observables du Fluxonium
-
-## 4.1 Observables principales
-
-Le module "fluxonium_model.py" regroupe les observables physiques utilisées par les couches supérieures du pipeline.
-
-Les principales grandeurs concernent :
-
-- les fréquences de transition ;
-- les éléments de matrice ;
-- les taux de relaxation ;
-- les taux de déphasage ;
-- la sensibilité au flux ;
-- les quantités géométriques associées aux états propres.
+La convergence d’une observable ne garantit pas nécessairement la convergence de toutes les autres.
 
 ---
 
-## 4.2 Sensibilité au flux
+# 11. Sensibilité au flux
 
-La dérivée de fréquence relie une fluctuation de flux à une fluctuation de fréquence.
-
-Au premier ordre :
+La variation de la fréquence fondamentale avec le flux peut être décrite au premier ordre par :
 
 [
 \delta f_{01}
@@ -825,33 +528,42 @@ Au second ordre :
 [
 \delta f_{01}
 \simeq
-\frac{\partial f_{01}}{\partial\Phi}
-\delta\Phi
+\frac{\partial f_{01}}{\partial\Phi}\delta\Phi
 +
-\frac12
+\frac{1}{2}
 \frac{\partial^2f_{01}}{\partial\Phi^2}
 (\delta\Phi)^2.
 ]
 
 Le premier terme décrit la sensibilité linéaire.
 
-Le second introduit la contribution de la courbure fréquentielle.
+Le second décrit la contribution de la courbure fréquentielle.
 
-Cette distinction devient importante au voisinage d'un point doux, où la dérivée première peut être faible alors que la dérivée seconde reste non nulle.
+Cette distinction devient importante au voisinage d’un point doux, où :
+
+[
+\frac{\partial f_{01}}{\partial\Phi}
+]
+
+peut être faible alors que :
+
+[
+\frac{\partial^2f_{01}}{\partial\Phi^2}
+]
+
+reste non nul.
 
 ---
 
-## 4.3 Quantum geometric tensor et métrique de Fubini–Study
+# 12. Quantum geometric tensor et métrique de Fubini–Study
 
-Le quantum geometric tensor (QGT) décrit la réponse géométrique d'un état quantique à une variation de paramètres.
-
-Pour un état pur normalisé
+Pour un état pur normalisé :
 
 [
 |\psi(\lambda)\rangle,
 ]
 
-sa forme projetée peut s'écrire :
+le quantum geometric tensor peut être défini par :
 
 [
 Q_{\mu\nu}
@@ -869,7 +581,7 @@ g_{\mu\nu}^{FS}
 \operatorname{Re}(Q_{\mu\nu}).
 ]
 
-Dans le cas d'un paramètre de flux :
+Pour le flux :
 
 [
 g_{\Phi\Phi}^{FS}
@@ -877,26 +589,85 @@ g_{\Phi\Phi}^{FS}
 \operatorname{Re}(Q_{\Phi\Phi}).
 ]
 
-Cette métrique mesure la sensibilité géométrique de l'état quantique aux variations du paramètre considéré.
+Cette métrique caractérise la sensibilité géométrique de l’état quantique à une variation du paramètre.
 
-Elle ne détermine pas, à elle seule :
+Elle ne constitue pas, à elle seule :
 
 - un taux de relaxation ;
 - un taux de déphasage ;
-- une probabilité d'erreur ;
-- un couplage physique entre deux qubits.
+- une probabilité d’erreur ;
+- un canal de bruit ;
+- un couplage physique entre qubits.
 
-Le paramètre "fs_coupling_gamma" demeure phénoménologique tant qu'une relation physique indépendante et testable ne le justifie.
+12.1 Calcul par différence finie
+
+Une estimation locale peut utiliser une quantité de la forme :
+
+[
+g_{\Phi\Phi}^{FS}
+\approx
+\frac{
+1-
+|\langle\psi(\Phi)|\psi(\Phi+\delta\Phi)\rangle|^2
+}{
+(\delta\Phi)^2
+}.
+]
+
+Le calcul doit préciser :
+
+- l’état considéré ;
+- le pas \delta\Phi ;
+- la méthode de calcul des états ;
+- la gestion de la phase globale ;
+- la convergence lorsque \delta\Phi\rightarrow0.
+
+La métrique doit être calculée sur l’état explicitement défini par le modèle : état fondamental, état excité ou sous-espace logique.
 
 ---
 
-# 5. Quasiparticules froides
+# 13. Interface géométrie — bruit
 
-## 5.1 Modèle de la petite jonction
+Le projet distingue :
 
-Le modèle de relaxation par quasiparticules concerne la petite jonction Josephson du Fluxonium, dans l'approximation des quasiparticules froides.
+[
+g_{FS}
+]
 
-Le taux descendant est représenté sous la forme :
+d’un canal de bruit.
+
+Il n’existe pas dans le pipeline actuel de relation physique universelle permettant d’écrire directement :
+
+[
+g_{FS}
+\longrightarrow
+p_{\mathrm{erreur}}.
+]
+
+Le paramètre :
+
+fs_coupling_gamma
+
+doit donc être interprété comme une hypothèse de couplage phénoménologique tant qu’une dérivation physique indépendante et testable n’est pas établie.
+
+Une telle relation devrait notamment préciser :
+
+1. la grandeur physique couplée ;
+2. les unités ;
+3. l’échelle temporelle ;
+4. la dépendance en flux ;
+5. le mécanisme microscopique ou effectif ;
+6. les paramètres indépendants ;
+7. une méthode de calibration ;
+8. une prédiction falsifiable.
+
+---
+
+# 14. Quasiparticules froides et petite jonction
+
+Le modèle de relaxation par quasiparticules concerne la petite jonction Josephson du Fluxonium dans l’approximation des quasiparticules froides.
+
+Une expression de taux peut être écrite sous la forme :
 
 [
 \Gamma_{\mathrm{qp},\downarrow}
@@ -904,70 +675,73 @@ Le taux descendant est représenté sous la forme :
 \frac{8}{\pi}
 \frac{E_J}{\hbar}
 x_{qp}
-\sqrt{\frac{2\Delta}{h f_{01}}}
+\sqrt{\frac{2\Delta}{hf_{01}}}
 \left|
-\left\langle0\left|
-\sin\left(
+\left\langle
+0
+\left|
+\sin
+\left(
 \frac{\hat\phi-\phi_{\mathrm{ext}}}{2}
 \right)
-\right|1\right\rangle
+\right|
+1
+\right\rangle
 \right|^2.
 ]
 
-Cette expression doit être interprétée avec les conventions de normalisation de (x_{qp}), de (E_J), de (\Delta) et des opérateurs utilisées par l'implémentation.
+L’expression doit être interprétée avec les conventions de normalisation utilisées pour :
 
-La vérification dimensionnelle et la comparaison à la formulation de référence sont nécessaires avant toute interprétation quantitative.
+- x_{qp} ;
+- E_J ;
+- \Delta ;
+- f_{01} ;
+- l’opérateur de phase.
 
-Référence principale :
-
-Pop et al., Nature 508, 369–372 (2014).
+Le préfacteur et les conventions de normalisation doivent être confrontés à la littérature de référence avant toute interprétation quantitative.
 
 ---
 
-## 5.2 Hypothèses
+# 15. Hypothèses quasiparticulaires
 
-Le modèle repose sur les hypothèses suivantes :
+Le modèle considéré repose notamment sur :
 
 - quasiparticules froides ;
-- énergie typique des quasiparticules très inférieure à (hf_{01}) ;
-- (hf_{01}\ll\Delta) ;
-- contribution de la petite jonction uniquement ;
+- régime hf_{01}\ll\Delta ;
+- contribution de la petite jonction ;
 - absence de taux montant QP dans le modèle considéré ;
 - absence de contribution QP du réseau inductif ;
-- absence d'asymétrie de gap supraconducteur ;
-- absence de modélisation microscopique du piégeage et de la recombinaison.
+- absence de modélisation complète du piégeage ;
+- absence de modélisation microscopique complète de la recombinaison ;
+- absence de description complète des asymétries de gap.
+
+Le taux obtenu représente donc une contribution de relaxation dans les hypothèses du modèle, et non le taux total de relaxation QP d’un Fluxonium réel.
 
 ---
 
-## 5.3 Portée
+# 16. Canal de bruit
 
-Le taux calculé est une contribution de relaxation associée à la petite jonction dans les hypothèses du modèle.
+Le module "noise_channel.py" construit un canal de bruit effectif sur une durée :
 
-Il ne représente pas automatiquement le taux total de relaxation par quasiparticules d'un Fluxonium réel.
+[
+\tau.
+]
 
----
+Les mécanismes considérés sont notamment :
 
-# 6. Canal de bruit et Pauli twirling
+- amplitude damping ;
+- déphasage pur ;
+- représentation PTM ;
+- Pauli twirling ;
+- composition de canaux.
 
-## 6.1 Construction du canal
-
-Le module "noise_channel.py" construit un canal de bruit effectif sur une durée (\tau).
-
-Les mécanismes considérés comprennent :
-
-- l'amplitude damping ;
-- le déphasage pur ;
-- la représentation par matrice de transfert de Pauli ;
-- le Pauli twirling ;
-- la composition des canaux dans la représentation PTM.
-
-Les taux physiques sont convertis en paramètres de canal selon les conventions et les approximations explicitement utilisées.
+Les taux physiques sont convertis en paramètres de canal selon les conventions explicites du modèle.
 
 ---
 
-## 6.2 Amplitude damping
+# 17. Amplitude damping et Pauli twirling
 
-Pour un canal d'amplitude damping de paramètre :
+Pour :
 
 [
 \gamma
@@ -975,85 +749,104 @@ Pour un canal d'amplitude damping de paramètre :
 1-e^{-\tau/T_1},
 ]
 
-les valeurs propres de la partie dissipative de la PTM sont :
+la matrice de transfert de Pauli du canal d’amplitude damping possède, dans la convention utilisée, les valeurs propres :
 
 [
-\lambda_X=\lambda_Y=\sqrt{1-\gamma},
+\lambda_X=\sqrt{1-\gamma},
+]
+
+[
+\lambda_Y=\sqrt{1-\gamma},
 ]
 
 [
 \lambda_Z=1-\gamma.
 ]
 
-Après Pauli twirling, les probabilités sont :
+Le Pauli twirling associé donne :
 
 [
 p_X=p_Y=\frac{\gamma}{4},
 ]
 
-[
-p_Z=
-\frac{
-2-\gamma-2\sqrt{1-\gamma}
-}{4},
-]
+et :
 
 [
-p_I=
+p_Z
+
 \frac{
-2-\gamma+2\sqrt{1-\gamma}
+2-\gamma-2\sqrt{1-\gamma}
 }{4}.
 ]
 
-Elles vérifient :
+Enfin :
 
 [
-p_I+p_X+p_Y+p_Z=1.
+p_I
+
+1-p_X-p_Y-p_Z.
 ]
 
-Pour (\gamma\ll1) :
+Pour \gamma\ll1 :
 
 [
-p_X=p_Y\simeq\frac{\gamma}{4},
+p_Z
+\approx
+\frac{\gamma^2}{16}.
 ]
+
+Ainsi, l’approximation :
 
 [
-p_Z\simeq\frac{\gamma^2}{16}.
+p_Z=\frac{\gamma}{2}
 ]
 
-Ces probabilités décrivent le canal de Pauli obtenu après twirling.
+ne doit pas être utilisée comme résultat du Pauli twirling exact de l’amplitude damping.
 
-Elles ne signifient pas que l'amplitude damping initial est lui-même un canal de Pauli.
+Le canal d’amplitude damping initial n’est pas lui-même un canal de Pauli. Le twirling constitue une réduction de sa représentation.
 
-Le twirling constitue une réduction du canal quantique original.
+## 17.1 Test numérique
+
+Le module doit vérifier les valeurs fermées pour plusieurs régimes, par exemple :
+
+[
+\gamma\in
+{10^{-4},10^{-2},0.3,0.9}.
+]
+
+Pour chaque valeur :
+
+[
+p_I+p_X+p_Y+p_Z=1
+]
+
+doit être vérifié dans la tolérance numérique choisie.
+
+Le test doit également comparer les probabilités calculées aux expressions analytiques.
 
 ---
 
-## 6.3 Déphasage pur
+# 18. Déphasage pur
 
-Pour un déphasage pur de paramètre :
-
-[
-\lambda_Z
-
-\frac{1-e^{-\tau/T_\phi}}{2},
-]
-
-la représentation de Pauli est :
+Pour le canal de déphasage pur :
 
 [
-p_Z=\lambda_Z,
+p_Z
+
+\frac{
+1-e^{-\tau/T_\phi}
+}{2},
 ]
+
+et :
 
 [
-p_I=1-\lambda_Z.
+p_I=1-p_Z.
 ]
 
-Cette expression suppose la convention de déphasage pur retenue par le module.
+Cette expression dépend de la convention de canal utilisée.
 
-Il faut distinguer (T_\phi) de (T_2).
-
-Lorsque les mécanismes considérés sont ceux d'une relaxation d'amplitude et d'un déphasage pur markovien :
+Lorsque la relaxation d’amplitude et le déphasage pur sont modélisés comme mécanismes markoviens indépendants :
 
 [
 \frac{1}{T_2}
@@ -1063,81 +856,89 @@ Lorsque les mécanismes considérés sont ceux d'une relaxation d'amplitude et d
 \frac{1}{T_\phi}.
 ]
 
+Il faut distinguer ce modèle exponentiel d’un bruit de flux quasi statique ou coloré.
+
 ---
 
-## 6.4 Composition PTM
+# 19. Composition des canaux en PTM
 
-La matrice de transfert de Pauli représente l'action du canal sur les opérateurs de Pauli.
+Pour deux canaux :
 
-Pour les canaux de Pauli :
+[
+\mathcal E_1
+\quad\text{et}\quad
+\mathcal E_2,
+]
+
+la composition :
+
+[
+\mathcal E_2\circ\mathcal E_1
+]
+
+est représentée par :
 
 [
 R_{\mathcal E_2\circ\mathcal E_1}
 
-R_{\mathcal E_2}
-R_{\mathcal E_1}.
+R_{\mathcal E_2}R_{\mathcal E_1}.
 ]
 
-Lorsque les matrices considérées sont diagonales dans la base de Pauli, la composition se réduit au produit de leurs composantes diagonales.
+Lorsque les PTM sont diagonales dans la base de Pauli, la composition se réduit au produit composante par composante.
 
-Le canal de Pauli effectif est ensuite représenté par :
+Le résultat peut ensuite être reconverti en probabilités :
 
 [
-\mathcal E_{\mathrm{Pauli}}
-
 {p_I,p_X,p_Y,p_Z}.
 ]
 
-Précision épistémique :
+Cette opération est algébriquement exacte pour les canaux représentés.
 
-le twirling est une opération de réduction du canal.
-
-Il supprime certaines composantes cohérentes et non diagonales.
-
-L'exactitude algébrique de la composition PTM ne signifie donc pas que le canal twirlé conserve toute l'information du canal quantique initial.
+Elle ne signifie pas que la réduction de Pauli conserve toute l’information du canal quantique initial.
 
 ---
 
-## 6.5 Bruit quasi statique et bruit coloré
+# 20. Bruit quasi statique et bruit coloré
 
-Le canal de Pauli effectif ne reproduit pas intégralement :
+Un canal de Pauli indépendant par cycle ne reproduit pas intégralement :
 
 - les corrélations temporelles entre cycles ;
-- la dynamique du bruit quasi statique (1/f) ;
+- le bruit quasi statique ;
+- les spectres de type 1/f ;
 - les effets non markoviens ;
-- la non-exponentialité de certaines enveloppes de cohérence ;
-- les contributions de la courbure (\partial^2f_{01}/\partial\Phi^2) ;
-- les corrélations entre erreurs d'amplitude et de phase.
+- les formes non exponentielles de cohérence ;
+- les contributions de la courbure fréquentielle ;
+- les corrélations entre erreurs d’amplitude et erreurs de phase.
 
-Le bruit quasi statique ne doit donc pas être automatiquement assimilé à un taux de déphasage markovien constant.
+Une fluctuation quasi statique du flux ne doit donc pas être identifiée automatiquement à un taux de déphasage markovien constant.
 
 Une réduction en canal effectif doit préciser :
 
-- la durée considérée ;
+- la durée du cycle ;
 - la distribution du bruit ;
+- le spectre considéré ;
 - les hypothèses temporelles ;
-- la convention spectrale ;
-- la méthode de twirling ;
-- les corrélations éventuellement négligées.
+- la méthode de moyenne ou de twirling ;
+- la quantité observée après réduction.
 
 ---
 
-# 7. Qubit bosonique Kerr-Cat
+# 21. Qubit bosonique Kerr-Cat
 
-## 7.1 Modèle dynamique
+## 21.1 Modèle
 
 Le module "kerr_cat_simulator.py" étudie une dynamique bosonique de type Kerr-Cat.
 
-Le modèle comprend notamment :
+Le modèle peut comprendre :
 
-- le pompage à deux photons ;
-- un Hamiltonien effectif de Kerr ;
-- une équation maîtresse de Lindblad ;
+- un Hamiltonien de Kerr ;
+- un pompage à deux photons ;
+- des dissipateurs de Lindblad ;
 - une intégration numérique ;
-- des estimations de fidélité logique ;
+- une estimation de fidélité logique ;
 - une estimation du leakage.
 
-La dynamique est décrite sous la forme générale :
+La dynamique est décrite par :
 
 [
 \frac{d\rho}{dt}
@@ -1148,7 +949,7 @@ La dynamique est décrite sous la forme générale :
 \mathcal D"L_j" (\rho),
 ]
 
-où :
+avec :
 
 [
 \mathcal D"L" (\rho)
@@ -1161,37 +962,33 @@ L^\dagger L,\rho
 \right}.
 ]
 
-La signification physique des opérateurs (L_j), leurs unités et leurs taux doivent être définis par les paramètres du modèle.
+La signification physique des opérateurs L_j, leurs unités et leurs taux doivent être définis par les paramètres du modèle.
+
+## 21.2 Indépendance du Kerr-Cat
+
+Le simulateur Kerr-Cat constitue actuellement une branche indépendante.
+
+Il ne doit pas être décrit comme une simulation couplée Fluxonium–Kerr-Cat.
+
+Les résultats de fidélité et de leakage dépendent notamment :
+
+- du Hamiltonien ;
+- des dissipateurs ;
+- des taux de perte ;
+- de la troncature de Fock ;
+- du pas d’intégration ;
+- des conditions initiales ;
+- de la définition de la fidélité.
+
+Toute fonction non implémentée ou levant "NotImplementedError" doit être considérée comme non opérationnelle.
 
 ---
 
-## 7.2 Indépendance du modèle
+# 22. Correction d’erreurs quantique
 
-Le simulateur Kerr-Cat est une branche bosonique indépendante du modèle Fluxonium.
+## 22.1 Probabilités locales
 
-Il ne constitue pas une simulation couplée complète entre un Fluxonium et un Kerr-Cat.
-
-Les résultats de fidélité et de leakage sont conditionnels :
-
-- au Hamiltonien ;
-- aux dissipateurs ;
-- à la troncature de Fock ;
-- à la méthode d'intégration ;
-- aux paramètres choisis.
-
-Toute fonctionnalité de calibration qui n'est pas effectivement opérationnelle doit être documentée comme telle.
-
-Référence de cadre théorique :
-
-S. Puri, S. Boutin, A. Blais (2017), Engineering the quantum states of light in a Kerr-nonlinear resonator by two-photon driving, npj Quantum Information 3, 18.
-
----
-
-# 8. Correction d'erreurs quantique et chirurgie de réseau
-
-## 8.1 Conversion des taux en probabilités locales
-
-Le module "error_correction.py" utilise des probabilités d'erreur locales associées à une durée de cycle :
+Le modèle QEC utilise des probabilités d’erreur locales associées à une durée de cycle :
 
 [
 \tau_{\mathrm{cycle}}.
@@ -1207,23 +1004,21 @@ p_{Y,i},
 p_{Z,i}.
 ]
 
-Cette conversion dépend du canal retenu et des approximations de réduction.
+Cette conversion dépend du canal choisi.
 
 Elle ne constitue pas une description complète :
 
-- des erreurs corrélées ;
 - des erreurs cohérentes ;
+- des erreurs corrélées ;
 - des erreurs temporellement persistantes ;
 - des erreurs de mesure ;
 - des corrélations entre qubits.
 
 ---
 
-## 8.2 Code de répétition de phase
+# 23. Code de répétition de phase
 
-Le modèle de répétition de phase considère une distance impaire (d).
-
-Les états logiques sont :
+Pour une distance impaire d, le code considère :
 
 [
 |0_L\rangle
@@ -1237,7 +1032,7 @@ Les états logiques sont :
 |-\rangle^{\otimes d}.
 ]
 
-Pour un modèle indépendant d'erreurs de phase de probabilité (p_Z), la probabilité d'une majorité d'erreurs est :
+Pour des erreurs de phase indépendantes de probabilité p_Z, la probabilité d’échec par majorité est :
 
 [
 P_L^{(Z)}
@@ -1248,108 +1043,133 @@ p_Z^k
 (1-p_Z)^{d-k}.
 ]
 
-Cette expression suppose des erreurs indépendantes et identiquement distribuées.
+Cette expression suppose :
 
-Elle ne décrit pas automatiquement :
+- erreurs indépendantes ;
+- probabilité identique sur les qubits ;
+- absence d’erreur de mesure ;
+- règle de décodage par majorité.
 
-- les erreurs corrélées ;
-- les erreurs de mesure ;
-- les corrélations espace-temps ;
-- les processus cohérents.
-
----
-
-## 8.3 Budget d'erreur logique
-
-Le budget logique agrège les contributions d'erreurs selon les hypothèses du modèle.
-
-Lorsque plusieurs contributions sont combinées par une formule d'indépendance, cette hypothèse doit être explicitement indiquée.
-
-Une combinaison de probabilités marginales ne doit pas être interprétée comme une distribution conjointe exacte en l'absence de vérification de l'indépendance.
+Elle ne constitue pas un modèle général du code de surface.
 
 ---
 
-## 8.4 Prototype de chirurgie de réseau
+# 24. Budget d’erreur logique
 
-Le prototype de chirurgie de réseau étudie une séquence de type :
+Le budget logique agrège différentes contributions d’erreur selon les hypothèses du modèle.
 
-Init
-  │
-  ▼
-Merge
-  │
-  ▼
-d rounds
-  │
-  ▼
-Split
-  │
-  ▼
-Measure Z_L1
+Lorsqu’une combinaison utilise une hypothèse d’indépendance, celle-ci doit être explicitement documentée.
 
-La configuration annoncée utilise une distance :
+Des probabilités marginales :
+
+[
+p_A,\quad p_B
+]
+
+ne déterminent pas une distribution conjointe exacte sans information supplémentaire sur :
+
+[
+P(A\cap B).
+]
+
+Le budget logique doit donc distinguer :
+
+- probabilités marginales ;
+- hypothèses d’indépendance ;
+- corrélations éventuelles ;
+- contributions de lecture ;
+- contributions de portes ;
+- contributions de mémoire.
+
+---
+
+# 25. Chirurgie de réseau
+
+Le projet contient un prototype de chirurgie de réseau associé à une configuration annoncée de :
 
 [
 d=3
 ]
 
-et un total documentaire de :
+et :
 
 [
 21\ \text{qubits}.
 ]
 
-Ce nombre doit être interprété selon la définition exacte du prototype.
+Cette valeur de 21 qubits doit être interprétée selon la composition exacte de l’architecture implémentée.
 
-Un patch de code de surface tourné (d=3) standard est généralement décrit avec :
+Le dépôt doit préciser explicitement :
 
-[
-9\ \text{qubits de données}
-+
-8\ \text{ancillas}
+- quels qubits sont des qubits de données ;
+- quels qubits sont des ancillas ;
+- quels ancillas servent aux stabilisateurs ;
+- quels qubits sont utilisés comme interface ;
+- quelles opérations sont réellement simulées.
 
-17\ \text{qubits}.
-]
+Le nombre total de qubits ne doit donc pas être assimilé automatiquement au seul nombre de qubits de données d’un patch de surface code.
 
-Par conséquent, le nombre 21 doit être documenté explicitement : il peut correspondre à une architecture réduite, à des qubits d'interface supplémentaires ou à une autre convention de comptage.
+## 25.1 Statut du prototype
 
-La chirurgie est un prototype numérique.
+Le protocole est considéré comme un prototype numérique, notamment pour explorer une séquence du type :
 
-Elle ne doit pas être présentée comme :
+INIT
+  │
+  ▼
+MERGE
+  │
+  ▼
+d ROUNDS
+  │
+  ▼
+SPLIT
+  │
+  ▼
+MEASURE Z_L1
 
-- une simulation complète au niveau des stabilisateurs ;
-- une simulation complète des circuits de portes ;
+Le prototype ne doit pas être présenté comme :
+
+- une simulation complète des stabilisateurs ;
+- une simulation complète des circuits physiques ;
 - une modélisation exhaustive des erreurs de lecture ;
 - une démonstration de seuil QEC ;
-- une validation d'une architecture matérielle ;
-- une preuve de correction d'erreurs universelle.
+- une validation matérielle ;
+- une preuve de correction universelle.
 
 ---
 
-## 8.5 Décodage géométrique
+# 26. Décodage géométrique
 
-Le module "geometric_mwpm_decoder.py" explore une pondération du décodage par des informations géométriques et par le biais local.
+Le module "geometric_mwpm_decoder.py" explore une pondération du décodage par des informations locales telles que :
+
+- le biais du bruit ;
+- les paramètres locaux ;
+- des informations géométriques.
 
 Cette approche constitue un prototype de décodage pondéré.
 
-Pour revendiquer un MWPM complet de code de surface, il faudrait notamment spécifier et valider :
+Pour établir un décodeur MWPM complet de code de surface, il faudrait notamment définir et valider :
 
 - le graphe des événements de syndrome ;
 - les erreurs de données ;
 - les erreurs de mesure ;
 - les frontières logiques ;
-- les contraintes des stabilisateurs X et Z ;
-- l'historique espace-temps ;
-- les règles de merge et de split ;
-- le traitement des chemins logiques.
+- les stabilisateurs X ;
+- les stabilisateurs Z ;
+- l’historique espace-temps ;
+- les règles de merge ;
+- les règles de split ;
+- les chemins logiques ;
+- les poids des arêtes ;
+- la règle de décision finale.
 
-Une pondération géométrique ne suffit pas, à elle seule, à établir ces propriétés.
+Une pondération géométrique ne suffit pas, à elle seule, à établir un MWPM espace-temps complet.
 
 ---
 
-# 9. Structure du dépôt
+# 27. Structure du dépôt
 
-L'organisation documentée sépare les modules de calcul, les orchestrateurs et les tests.
+L’organisation documentée du projet est :
 
 cqed-topological-bridge/
 ├── __init__.py
@@ -1382,40 +1202,38 @@ cqed-topological-bridge/
     ├── test_fubini_study.py
     └── test_kerr_cat.py
 
-Cette arborescence doit être considérée comme une structure documentaire à maintenir synchronisée avec les fichiers effectivement suivis dans le dépôt.
+Cette arborescence doit rester synchronisée avec les fichiers réellement suivis dans Git.
 
-Les noms de modules, les exports et les points d'entrée doivent être vérifiés contre le commit concerné.
+Les chemins "test/" et "tests/" ne doivent pas être utilisés indistinctement dans la documentation.
 
 ---
 
-# 10. Rôle des modules
+# 28. Rôle des modules
 
 Module| Responsabilité
 "fluxonium_core.py"| Structures et constantes liées au modèle Fluxonium
-"fluxonium_hamiltonian.py"| Construction et diagonalisation de l'Hamiltonien
-"fluxonium_model.py"| Observables, éléments de matrice et estimations de cohérence
-"fubini_study_manifold.py"| QGT et géométrie de Fubini–Study
-"fluxon_engine.py"| Modulation du substrat et bilan effectif de quasiparticules
+"fluxonium_hamiltonian.py"| Construction et diagonalisation de l’Hamiltonien
+"fluxonium_model.py"| Observables, éléments de matrice et paramètres de cohérence
+"fubini_study_manifold.py"| QGT et métrique de Fubini–Study
+"fluxon_engine.py"| Modulation paramétrique et bilan effectif de quasiparticules
 "noise_channel.py"| Canaux de bruit, PTM et Pauli twirling
 "kerr_cat_simulator.py"| Dynamique bosonique Kerr-Cat
-"pulse_calibration.py"| Outils de calibration d'impulsions
-"error_correction.py"| Codes de répétition et budget d'erreur logique
+"pulse_calibration.py"| Outils de calibration d’impulsions
+"error_correction.py"| Codes de répétition et budget d’erreur
 "geometric_mwpm_decoder.py"| Prototype de décodage pondéré
-"pont_lourd_unifie.py"| Orchestration du pont et prototype de chirurgie 21Q
+"pont_lourd_unifie.py"| Orchestration du pont et prototype de chirurgie
 "edifice.py"| Architecture globale et intégration des couches
-"run_pipeline.py"| Point d'entrée du pipeline standard
-
-La présence d'un module dans cette table ne constitue pas, à elle seule, une certification de son niveau d'implémentation.
+"run_pipeline.py"| Point d’entrée du pipeline standard
 
 ---
 
-# 11. Installation
+# 29. Installation
 
 Créer un environnement virtuel :
 
 python -m venv .venv
 
-Activer l'environnement.
+Activer l’environnement.
 
 Linux / macOS
 
@@ -1431,13 +1249,17 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 pip install -e .
 
-Les dépendances doivent rester conformes aux déclarations de "requirements.txt" et "pyproject.toml".
+Les dépendances doivent rester cohérentes entre :
+
+- "requirements.txt" ;
+- "pyproject.toml" ;
+- les imports effectivement utilisés.
 
 ---
 
-# 12. Exécution
+# 30. Exécution
 
-Les points d'entrée documentés sont :
+Les points d’entrée documentés sont :
 
 Pipeline standard
 
@@ -1447,17 +1269,22 @@ Orchestrateur du pont
 
 python pont_lourd_unifie.py
 
-Ces commandes correspondent aux points d'entrée documentés.
+La présence d’un point d’entrée ne garantit pas son bon fonctionnement.
 
-Leur opérationnalité doit être établie par une exécution effective dans un environnement propre.
+Avant de le qualifier d’opérationnel, il faut vérifier :
 
-La simple présence d'un fichier ou d'une fonction "main()" ne constitue pas une preuve d'exécution réussie.
+- les imports ;
+- les paramètres requis ;
+- les chemins ;
+- les API ;
+- les dépendances ;
+- l’exécution dans un environnement propre.
 
 ---
 
-# 13. Tests
+# 31. Tests
 
-Lancer la suite :
+La suite peut être lancée avec :
 
 python -m pytest test/ -v
 
@@ -1465,87 +1292,159 @@ ou :
 
 python -m pytest -q
 
-Les tests documentés couvrent notamment :
+Les domaines de test documentés sont :
 
 Fichier| Domaine
 "test_fluxonium.py"| Spectre, états propres et propriétés du Fluxonium
 "test_fubini_study.py"| QGT et métrique de Fubini–Study
 "test_kerr_cat.py"| Dynamique Lindblad, fidélité et leakage
-"test_error_correction.py"| Codes de répétition et budget d'erreur
-"test_chirurgie_21q_pont.py"| Intégration du prototype de chirurgie 21 qubits
+"test_error_correction.py"| Codes de répétition et budget d’erreur
+"test_chirurgie_21q_pont.py"| Prototype de chirurgie 21 qubits
 
 Les tests peuvent vérifier :
 
-- des invariants algébriques ;
-- la cohérence de calculs numériques ;
-- la convergence d'une méthode ;
-- la stabilité d'une simulation ;
-- le comportement d'une abstraction logicielle.
+- invariants algébriques ;
+- cohérence numérique ;
+- convergence ;
+- stabilité d’une simulation ;
+- comportement d’une abstraction logicielle.
 
 Ils ne remplacent pas :
 
 - une validation analytique indépendante ;
-- une comparaison à une référence numérique ;
-- une calibration expérimentale ;
+- une comparaison à une méthode de référence ;
 - une validation expérimentale.
 
-Aucun résultat de test ne doit être annoncé comme réussi sans exécution effective sur le commit concerné.
+Aucun résultat de test ne doit être présenté comme réussi sans exécution effective sur le commit concerné.
 
 ---
 
-# 14. Limites scientifiques
+# 32. Tests minimaux à renforcer
+
+## 32.1 Amplitude damping
+
+Tester :
+
+[
+\gamma
+\in
+{10^{-4},10^{-2},0.3,0.9}.
+]
+
+Vérifier :
+
+[
+p_X=p_Y=\frac{\gamma}{4},
+]
+
+[
+p_Z
+
+\frac{
+2-\gamma-2\sqrt{1-\gamma}
+}{4},
+]
+
+[
+p_I=1-p_X-p_Y-p_Z,
+]
+
+et :
+
+[
+\sum_Pp_P=1.
+]
+
+## 32.2 Bilan quasiparticulaire
+
+Le test doit distinguer :
+
+- fermeture arithmétique du bilan ;
+- exactitude d’une solution dynamique indépendante.
+
+Une identité obtenue directement à partir de l’équation de mise à jour ne constitue pas une validation indépendante.
+
+## 32.3 Convergence Fluxonium
+
+Les tests doivent examiner la stabilité de :
+
+[
+f_{01},
+\quad
+\langle0|\hat n|1\rangle,
+\quad
+\langle0|\hat\phi|1\rangle,
+\quad
+\frac{\partial f_{01}}{\partial\Phi},
+\quad
+g_{FS}
+]
+
+lorsque :
+
+- la grille est raffinée ;
+- le domaine est élargi ;
+- le nombre d’états est augmenté.
+
+---
+
+# 33. Limites scientifiques
 
 Domaine| Limite actuelle
-Fluxonium| Résultats dépendants des paramètres, de la discrétisation et des hypothèses de bruit
-Géométrie quantique| (g_{FS}) ne détermine pas directement les probabilités d'erreur
-Quasiparticules| Modèle limité à la contribution froide de la petite jonction
+Fluxonium| Dépendance aux paramètres, à la discrétisation et aux hypothèses de bruit
+Opérateurs numériques| Approximation sur grille finie et conditions aux limites
+Géométrie quantique| g_{FS} ne détermine pas directement une probabilité d’erreur
+Quasiparticules| Modèle limité aux hypothèses de quasiparticules froides et à la petite jonction
 Substrat| Bilan effectif, sans dynamique microscopique complète
-Bruit| Canal de Pauli réduit, avec perte d'information liée au twirling
-Bruit quasi statique| Corrélations temporelles non entièrement représentées par un canal markovien
+Bruit| Canal de Pauli réduit
+Bruit quasi statique| Corrélations temporelles non représentées intégralement par un canal markovien indépendant
 Kerr-Cat| Branche indépendante du Fluxonium
-Calibration| Contrôle DRAG non établi comme fonctionnalité opérationnelle sans vérification
+Calibration| Contrôle DRAG non établi comme fonctionnalité opérationnelle
 QEC| Modèles effectifs et prototypes
-Décodage| Pas de démonstration d'un MWPM espace-temps complet
-Chirurgie| Prototype numérique, non simulation stabilizer-level complète
+Décodage| Pas de démonstration d’un MWPM espace-temps complet
+Chirurgie| Prototype numérique, pas une simulation stabilisateur-level complète
 Expérience| Aucune validation expérimentale intégrée
 
 ---
 
-# 15. Feuille de route de validation
-
-Les étapes suivantes sont des objectifs de recherche et de validation.
+# 34. Feuille de route de validation
 
 P0 — Cohérence logicielle
 
-- vérifier les imports de tous les modules ;
-- aligner les exports de "src/__init__.py" sur les symboles réellement définis ;
-- vérifier la cohérence entre les API et les tests ;
-- éliminer toute commande shell présente accidentellement dans les fichiers Python de test ;
+- vérifier les imports ;
+- aligner "src/__init__.py" sur les symboles réellement définis ;
+- vérifier la cohérence entre API et tests ;
+- rechercher les commandes shell accidentellement présentes dans les fichiers Python ;
 - exécuter les tests dans un environnement propre ;
-- documenter les résultats d'exécution.
+- documenter les résultats ;
+- ajouter une CI GitHub Actions exécutant la suite de tests.
+
+Exemple de commande CI :
+
+python -m pytest -q
 
 ---
 
 P1 — Solveur Fluxonium
 
-- vérifier l'hermiticité de l'Hamiltonien ;
+- vérifier l’hermiticité de l’Hamiltonien ;
 - vérifier les opérateurs discrets ;
 - étudier la convergence en taille de grille ;
 - étudier la convergence en étendue de domaine ;
 - comparer les spectres à une méthode indépendante ;
 - vérifier les éléments de matrice ;
-- vérifier la stabilité des dérivées de fréquence.
+- contrôler les effets de troncature.
 
 ---
 
 P2 — Géométrie quantique
 
 - vérifier la normalisation des états ;
-- contrôler l'invariance de jauge ;
+- contrôler l’invariance de jauge ;
 - étudier la convergence en pas de différence finie ;
-- comparer les méthodes de calcul du QGT ;
-- distinguer les métriques locales des grandeurs physiques de bruit ;
-- identifier précisément l'état et le paramètre utilisés pour chaque métrique.
+- comparer plusieurs méthodes de calcul du QGT ;
+- identifier explicitement l’état utilisé ;
+- distinguer les métriques géométriques des grandeurs de bruit.
 
 ---
 
@@ -1554,10 +1453,10 @@ P3 — Bruit et canaux
 - documenter les conventions spectrales ;
 - distinguer bruit blanc, bruit coloré et bruit quasi statique ;
 - comparer les canaux à une évolution de référence ;
-- quantifier l'information perdue par le twirling ;
+- quantifier l’information perdue par le twirling ;
 - vérifier la conversion des taux en probabilités par cycle ;
-- tester analytiquement le Pauli twirling de l'amplitude damping ;
-- vérifier les conventions de (T_1), (T_\phi) et (T_2).
+- vérifier les conventions dimensionnelles des PSD ;
+- tester séparément T_1, T_\phi, bruit de flux et composition PTM.
 
 ---
 
@@ -1568,20 +1467,25 @@ P4 — QEC et décodage
 - définir le graphe des événements de syndrome ;
 - construire un graphe espace-temps ;
 - comparer le décodeur à une implémentation de référence ;
-- documenter les frontières et les observables logiques.
+- vérifier les frontières logiques ;
+- documenter les poids utilisés par le décodage.
 
 ---
 
 P5 — Chirurgie de réseau
 
-- définir précisément les qubits de données et ancillas ;
-- définir les stabilisateurs initiaux et finaux ;
-- expliciter le comptage des 21 qubits ;
-- décrire les circuits de préparation, merge et split ;
-- modéliser les erreurs de portes et de lecture ;
+- définir les qubits de données ;
+- définir les ancillas ;
+- définir les stabilisateurs initiaux ;
+- définir les stabilisateurs finaux ;
+- définir les circuits de préparation ;
+- définir les opérations de merge ;
+- définir les opérations de split ;
+- modéliser les erreurs de portes ;
+- modéliser les erreurs de lecture ;
 - vérifier le suivi du cadre de Pauli ;
 - vérifier les observables logiques ;
-- étudier plusieurs distances avant toute affirmation de seuil.
+- étudier plusieurs distances avant toute affirmation concernant un seuil.
 
 ---
 
@@ -1589,103 +1493,139 @@ P6 — Intégration physique
 
 - définir les hypothèses de couplage entre qubits ;
 - relier les paramètres matériels aux canaux locaux ;
-- établir une interface physique testable entre géométrie et bruit, si elle est retenue ;
-- comparer les prédictions aux données expérimentales ;
+- établir une interface physique testable entre géométrie et bruit, si cette hypothèse est conservée ;
+- comparer les prédictions à des données expérimentales ;
 - publier les incertitudes ;
 - publier les domaines de validité ;
-- distinguer les paramètres calibrés des paramètres libres.
+- distinguer systématiquement modèle, simulation, calibration et mesure.
 
 ---
 
-# 16. Bonnes pratiques d'interprétation
+# 35. Hygiène du dépôt
 
-Les résultats du pipeline doivent être présentés avec leur niveau de preuve.
+Les noms de fichiers doivent rester compatibles avec les conventions Python et Git.
 
-Ne pas affirmer que le projet :
+Éviter notamment :
 
-- dérive un seuil de QEC ;
-- valide une architecture matérielle ;
-- prédit une fidélité expérimentale ;
-- implémente une correction d'erreurs complète ;
-- modélise toutes les sources de quasiparticules ;
-- établit un couplage géométrique physique démontré ;
-- remplace une calibration expérimentale ;
-- reproduit intégralement un bruit non markovien à partir d'un canal de Pauli indépendant.
+NOYAU QUANTIQUE V52.py
 
-Pour chaque résultat quantitatif, documenter autant que possible :
+Préférer un nom de module stable, par exemple :
 
-1. les paramètres matériels ;
-2. les unités ;
-3. les hypothèses physiques ;
-4. les conditions aux limites ;
-5. la taille de grille ou de base ;
-6. les tolérances numériques ;
-7. la durée d'évolution ou de cycle ;
-8. le modèle de bruit ;
-9. les conventions de twirling ;
-10. la graine aléatoire et le nombre de tirs ;
-11. les incertitudes numériques et statistiques ;
-12. le commit du code utilisé.
+quantum_core.py
+
+Les numéros de version doivent être portés par Git, les tags ou les releases plutôt que par des noms de fichiers successifs.
+
+L’arborescence documentée doit également correspondre à l’arborescence réelle :
+
+- "src/" ;
+- "test/" ou "tests/" ;
+- "notebooks/" si présent ;
+- "results/" si présent ;
+- "run_pipeline.py" s’il est effectivement présent.
+
+La documentation ne doit pas annoncer un fichier absent du commit considéré.
 
 ---
 
-# 17. Visualisation de trajectoire
+# 36. Reproductibilité
 
-Une visualisation telle que :
+Chaque résultat numérique important devrait être accompagné autant que possible de :
 
-« Trajectoire — Édifice quantique »
+1. paramètres matériels ;
+2. unités ;
+3. hypothèses physiques ;
+4. conditions aux limites ;
+5. taille de grille ;
+6. nombre d’états retenus ;
+7. tolérances numériques ;
+8. durée d’évolution ;
+9. durée de cycle ;
+10. modèle de bruit ;
+11. convention de twirling ;
+12. graine aléatoire ;
+13. nombre de tirs Monte-Carlo ;
+14. incertitudes numériques ;
+15. incertitudes statistiques ;
+16. commit Git utilisé.
 
-peut être utilisée comme représentation graphique d'une trajectoire dynamique simulée.
-
-Elle peut présenter simultanément :
-
-- une quantité cumulée ;
-- une concurrence ;
-- une fidélité ;
-- une pureté ;
-- les populations des états logiques.
-
-Cette visualisation doit être interprétée comme une représentation d'un sous-modèle dynamique.
-
-Elle ne constitue pas, à elle seule, une démonstration du pipeline complet :
-
-[
-\text{Fluxonium}
-\rightarrow
-\text{géométrie}
-\rightarrow
-\text{bruit}
-\rightarrow
-\text{QEC}.
-]
-
-Elle ne constitue pas non plus une validation expérimentale.
+La reproductibilité doit permettre de distinguer une propriété du modèle d’un résultat dépendant d’un réglage numérique particulier.
 
 ---
 
-# 18. Positionnement du projet
+# 37. Bonnes pratiques d’interprétation
+
+Les résultats doivent être présentés avec leur niveau de preuve.
+
+Quantum-Lab ne doit pas être présenté comme :
+
+- une dérivation d’un seuil QEC ;
+- une validation d’une architecture matérielle ;
+- une prédiction directe d’une fidélité expérimentale ;
+- une implémentation complète de correction d’erreurs ;
+- un modèle exhaustif des quasiparticules ;
+- une démonstration d’un couplage géométrique physique ;
+- un remplacement d’une calibration expérimentale ;
+- une reproduction intégrale d’un bruit non markovien par un canal de Pauli indépendant.
+
+Un résultat numérique doit rester associé au modèle qui l’a produit.
+
+---
+
+# 38. Références et vérification documentaire
+
+Les références bibliographiques utilisées pour justifier les modèles doivent être vérifiées avant publication.
+
+Les domaines à documenter comprennent notamment :
+
+- Pauli twirling de l’amplitude damping ;
+- modèles de quasiparticules dans les circuits supraconducteurs ;
+- Fluxonium ;
+- code de surface tourné ;
+- chirurgie de réseau ;
+- Kerr-Cat ;
+- géométrie quantique des états quantiques.
+
+Une référence non vérifiée ne doit pas être présentée comme une source bibliographique établie.
+
+Lorsque l’implémentation utilise une convention différente de celle d’un article de référence, la différence doit être explicitement documentée.
+
+---
+
+# 39. Positionnement scientifique
 
 Quantum-Lab étudie une question centrale :
 
-«Comment relier de manière traçable les propriétés microscopiques d'un circuit supraconducteur, la géométrie de ses états quantiques, ses canaux de bruit effectifs et les performances d'une architecture de correction d'erreurs ?»
+«Comment relier de manière traçable les propriétés microscopiques d’un circuit supraconducteur, la géométrie de ses états quantiques, ses canaux de bruit effectifs et les performances d’une architecture de correction d’erreurs ?»
 
-L'intérêt du projet réside dans la construction d'interfaces explicites entre ces niveaux.
+L’intérêt du projet réside dans la construction d’interfaces explicites entre ces niveaux de description.
 
-La géométrie quantique, les modèles de dissipation, les canaux de Pauli et les mécanismes de correction d'erreurs sont des descriptions distinctes.
+Ces niveaux ne sont pas identiques :
 
-Leur articulation exige :
+[
+\text{Hamiltonien}
+\neq
+\text{géométrie quantique}
+\neq
+\text{canal de bruit}
+\neq
+\text{modèle QEC}.
+]
 
-- des hypothèses identifiables ;
-- des transformations mathématiques explicites ;
-- des unités cohérentes ;
-- des domaines de validité ;
-- des validations indépendantes.
+Le passage de l’un à l’autre doit être défini par une transformation mathématique ou une hypothèse physique explicite.
 
-Le point central du projet n'est donc pas de supposer que ces descriptions sont déjà équivalentes.
+La géométrie quantique peut caractériser la réponse locale des états.
 
-Il consiste à déterminer quelles transformations permettent éventuellement de les relier sans perdre leur statut épistémique propre.
+Le canal de bruit décrit une réduction de la dynamique dissipative.
 
-Dans cette perspective :
+Le modèle QEC transforme ensuite ce canal en objets utilisables pour l’étude de la correction d’erreurs.
+
+Aucune de ces étapes ne doit être confondue avec une validation expérimentale.
+
+---
+
+# 40. Principe méthodologique
+
+Le pipeline suit une règle générale :
 
 [
 \boxed{
@@ -1693,25 +1633,120 @@ Dans cette perspective :
 \rightarrow
 \text{réduction}
 \rightarrow
-\text{canal effectif}
-\rightarrow
-\text{QEC}
+\text{simulation}
 \rightarrow
 \text{validation}
+\rightarrow
+\text{interprétation}
 }
 ]
 
-constitue une chaîne de transformations à contrôler, et non une identité physique présupposée.
+Chaque flèche doit être identifiable.
 
-La géométrie quantique peut fournir une information supplémentaire sur la structure locale de l'espace des états. Le canal de bruit décrit une autre couche de phénomènes. La relation entre ces deux descriptions reste une question de recherche tant qu'elle n'est pas établie par une relation physique explicite.
+Une réduction non documentée ne doit pas être présentée comme une loi physique.
 
-Quantum-Lab constitue ainsi un environnement de recherche numérique pour :
+Une simulation stable ne constitue pas nécessairement une simulation physiquement correcte.
 
-- construire ces interfaces ;
-- tester leur cohérence ;
-- mesurer les effets des réductions ;
-- identifier les hypothèses nécessaires ;
-- distinguer les résultats démontrés des paramètres phénoménologiques ;
-- préparer, lorsque cela devient possible, une confrontation avec des données expérimentales.
+Une correspondance numérique ne constitue pas nécessairement une causalité physique.
+
+Une hypothèse de couplage doit rester une hypothèse jusqu’à ce qu’elle produise une prédiction indépendante, quantitative et falsifiable.
+
+---
+
+# 41. Édifice quantique
+
+Le module "edifice.py" peut être considéré comme la couche d’architecture globale du projet.
+
+Son rôle est de rendre visibles les trajectoires entre niveaux :
+
+PARAMÈTRES DU SUBSTRAT
+          │
+          ▼
+     FLUXONIUM
+          │
+          ├──────────────► GÉOMÉTRIE
+          │                   │
+          │                   ▼
+          │              gFS / QGT
+          │
+          ▼
+        BRUIT
+          │
+          ├── T1
+          ├── Tφ
+          ├── bruit de flux
+          └── quasiparticules
+          │
+          ▼
+      CANAL EFFECTIF
+          │
+          ▼
+       PAULI PTM
+          │
+          ▼
+          QEC
+          │
+          ├── biais
+          ├── budget
+          ├── décodage
+          └── chirurgie
+
+La trajectoire observée dans les simulations doit être interprétée comme une trajectoire dans l’espace des modèles et des observables, et non comme la trajectoire physique complète d’un dispositif expérimental.
+
+L’édifice constitue ainsi une représentation structurée des interfaces du projet.
+
+---
+
+# 42. Conclusion
+
+Quantum-Lab propose un environnement numérique pour étudier les interfaces entre :
+
+[
+\text{Fluxonium}
+\rightarrow
+\text{géométrie quantique}
+\rightarrow
+\text{bruit}
+\rightarrow
+\text{réduction de Pauli}
+\rightarrow
+\text{QEC}.
+]
+
+Une branche complémentaire explore :
+
+[
+\text{Kerr-Cat}
+\rightarrow
+\text{dynamique bosonique}
+\rightarrow
+\text{fidélité / leakage}.
+]
+
+Une autre couche explore :
+
+[
+\text{inhomogénéité du substrat}
+\rightarrow
+\text{paramètres locaux}
+\rightarrow
+\text{bruit local}
+\rightarrow
+\text{décodage}.
+]
+
+Le point central du projet n’est pas de confondre ces descriptions, mais de construire des interfaces explicites entre elles.
+
+La question ouverte principale reste l’interface :
+
+[
+\boxed{
+g_{FS}
+;; ? ;;
+\text{canal de bruit}
+}
+]
+
+Tant qu’aucune relation physique indépendante ne la justifie, cette interface demeure un objet de recherche.
 
 Quantum-Lab — Modéliser les interfaces, contrôler les réductions, éprouver les correspondances.
